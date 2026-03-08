@@ -1,0 +1,11 @@
+audio:
+  enabled: true
+  output_dir: /downloads/audio
+
+video:
+  enabled: true
+  output_dir: /downloads/video
+
+artist:
+  mode: channel        # "channel" or "custom"
+  custom_name: ""      # used when mode is "custom"

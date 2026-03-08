@@ -1,0 +1,17 @@
+services:
+  djdownload:
+    build: .
+    container_name: djdownload
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    volumes:
+      # Persist config across rebuilds
+      - ./config:/config
+      # Map your actual audio/video destinations here
+      - /mnt/user/Music/Sets/Youtube:/downloads/audio
+      - /mnt/user/MusicVideos/Sets:/downloads/video
+    environment:
+      - CONFIG_PATH=/config/settings.yaml
+      - YT_DLP_BIN=/usr/local/bin/yt-dlp
+      - FFMPEG_BIN=ffmpeg
