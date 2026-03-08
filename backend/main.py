@@ -21,9 +21,9 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from config import load_settings, save_settings
-from downloader import fetch_metadata, download_audio, download_video, update_yt_dlp
-from tagging import tag_mp3
+from backend.config import load_settings, save_settings
+from backend.downloader import fetch_metadata, download_audio, download_video, update_yt_dlp
+from backend.tagging import tag_mp3
 
 import os
 
