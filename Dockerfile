@@ -21,7 +21,6 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy application
 COPY backend/ ./backend/
 COPY frontend/ ./frontend/
-COPY config/ ./config/
 
 # Mount points for volumes
 RUN mkdir -p /downloads/audio /downloads/video /config
