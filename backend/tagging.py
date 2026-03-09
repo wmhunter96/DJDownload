@@ -1,20 +1,18 @@
 """
-tagging.py — MP3 tagging via ffmpeg.
+tagging.py — MP3 tagging via mutagen.
 
-Writes ID3v2.3 tags to an MP3 in-place:
-  - title, artist, album  (from metadata)
-  - RELEASETYPE = album;live  (makes Plex treat this as a live album)
+Writes ID3v2.3 tags directly to the MP3 in-place without re-encoding,
+preserving any embedded artwork already added by yt-dlp.
 
-Preserves any embedded artwork already in the file.
+Tags written:
+  - TIT2  (title)
+  - TPE1  (artist)
+  - TALB  (album)
+  - TXXX:RELEASETYPE = album;live  (Plex live album detection)
 """
 
-import os
-import subprocess
-import shutil
-import tempfile
 from pathlib import Path
-
-FFMPEG = os.environ.get("FFMPEG_BIN", "ffmpeg")
+from mutagen.id3 import ID3, TIT2, TPE1, TALB, TXXX, ID3NoHeaderError
 
 
 def tag_mp3(
@@ -25,7 +23,7 @@ def tag_mp3(
     release_type: str = "album;live",
 ) -> str:
     """
-    Tag the MP3 at `src` in-place.
+    Tag the MP3 at `src` in-place using mutagen.
     Returns the final path (same as src on success).
     Raises RuntimeError on failure.
     """
@@ -33,60 +31,28 @@ def tag_mp3(
     if not src_path.exists():
         raise FileNotFoundError(f"MP3 not found: {src}")
 
-    # Write to a temp file in the same directory, then atomically replace
-    tmp_fd, tmp_path = tempfile.mkstemp(
-        suffix=".mp3", dir=src_path.parent, prefix=".tmp_tagged_"
-    )
-    os.close(tmp_fd)
+    title  = _sanitize(title)
+    artist = _sanitize(artist)
+    album  = _sanitize(album)
 
     try:
-        _ffmpeg_tag(
-            src=str(src_path),
-            dst=tmp_path,
-            title=_sanitize(title),
-            artist=_sanitize(artist),
-            album=_sanitize(album),
-            release_type=release_type,
-        )
+        try:
+            tags = ID3(str(src_path))
+        except ID3NoHeaderError:
+            tags = ID3()
 
-        # Atomic replace
-        shutil.move(tmp_path, str(src_path))
-    except Exception:
-        # Clean up temp file on failure
-        if os.path.exists(tmp_path):
-            os.remove(tmp_path)
-        raise
+        tags["TIT2"] = TIT2(encoding=3, text=title)
+        tags["TPE1"] = TPE1(encoding=3, text=artist)
+        tags["TALB"] = TALB(encoding=3, text=album)
+        tags["TXXX:RELEASETYPE"] = TXXX(encoding=3, desc="RELEASETYPE", text=release_type)
+
+        tags.save(str(src_path), v2_version=3)
+
+    except Exception as exc:
+        raise RuntimeError(f"mutagen tagging failed: {exc}") from exc
 
     return str(src_path)
 
 
-# ---------------------------------------------------------------------------
-# Internal
-# ---------------------------------------------------------------------------
-
-def _ffmpeg_tag(src: str, dst: str, title: str, artist: str, album: str, release_type: str) -> None:
-    cmd = [
-        FFMPEG,
-        "-y",
-        "-i", src,
-        "-c", "copy",
-        "-id3v2_version", "3",
-        "-metadata", f"title={title}",
-        "-metadata", f"artist={artist}",
-        "-metadata", f"album={album}",
-        "-metadata", f"RELEASETYPE={release_type}",
-        dst,
-    ]
-
-    result = subprocess.run(cmd, capture_output=True, text=True)
-
-    if result.returncode != 0:
-        raise RuntimeError(
-            f"ffmpeg tagging failed (exit {result.returncode}):\n"
-            f"{result.stderr[-2000:]}"   # last 2 KB of stderr
-        )
-
-
 def _sanitize(value: str) -> str:
-    """Remove characters that break ffmpeg -metadata values."""
-    return value.replace('"', "'").replace("\r", " ").replace("\n", " ").strip()
+    return value.replace("\r", " ").replace("\n", " ").strip()
