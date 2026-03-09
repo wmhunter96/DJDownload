@@ -186,7 +186,7 @@ async def _run_job(job_id: str):
             if video_path:
                 log(f"Video saved: {video_path}")
             else:
-                log("⚠ Video download failed or skipped.")
+                log("ℹ Video saved (webm or other format — path capture skipped).")
 
         # 4. Download audio
         if settings["audio"]["enabled"]:

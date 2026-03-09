@@ -66,7 +66,7 @@ def download_video(url: str, output_dir: str, log_callback=None) -> Optional[str
         url,
     ]
 
-    return _run_yt_dlp(cmd, output_dir, ext_filter="*.mp4", log_callback=log_callback)
+    return _run_yt_dlp(cmd, output_dir, ext_filter="*.webm,*.mp4,*.mkv", log_callback=log_callback)
 
 
 # ---------------------------------------------------------------------------
@@ -121,7 +121,8 @@ def _run_yt_dlp(cmd: list, output_dir: str, ext_filter: str, log_callback=None) 
 
         # yt-dlp --exec "after_move:echo {}" prints the final path
         stripped = line.strip()
-        if stripped.endswith(ext_filter.lstrip("*")):
+        exts = tuple(ext_filter.replace("*", "").split(","))
+        if any(stripped.endswith(e) for e in exts):
             last_printed_path = stripped
 
     process.wait()
@@ -135,8 +136,10 @@ def _run_yt_dlp(cmd: list, output_dir: str, ext_filter: str, log_callback=None) 
 
     # Fallback: newest matching file written since we started
     cutoff = start_time - 5  # small buffer
+    exts = ext_filter.split(",")
     candidates = [
-        f for f in glob.glob(os.path.join(output_dir, ext_filter))
+        f for ext in exts
+        for f in glob.glob(os.path.join(output_dir, ext))
         if os.path.getmtime(f) >= cutoff
     ]
     if candidates:
