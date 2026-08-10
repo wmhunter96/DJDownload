@@ -20,6 +20,12 @@ from typing import Optional
 
 YT_DLP = os.environ.get("YT_DLP_BIN", "yt-dlp")
 
+# Force IPv4: some googlevideo.com edge servers resolve to IPv6 addresses that
+# Docker/Unraid hosts often can't actually route, producing
+# "[Errno 101] Network is unreachable" mid-download even though metadata
+# fetches (which hit a different endpoint) succeed.
+NETWORK_ARGS = ["--force-ipv4"]
+
 
 # ---------------------------------------------------------------------------
 # Metadata
@@ -30,6 +36,7 @@ def fetch_metadata(url: str) -> dict:
     result = subprocess.run(
         [
             YT_DLP,
+            *NETWORK_ARGS,
             "--dump-json",
             "--no-playlist",
             "--extractor-args", "youtube:player_client=default",
@@ -60,6 +67,7 @@ def download_video(url: str, output_dir: str, log_callback=None) -> Optional[str
 
     cmd = [
         YT_DLP,
+        *NETWORK_ARGS,
         "--extractor-args", "youtube:player_client=default",
         "--no-playlist",
         "-o", output_template,
@@ -81,6 +89,7 @@ def download_audio(url: str, output_dir: str, log_callback=None) -> Optional[str
 
     cmd = [
         YT_DLP,
+        *NETWORK_ARGS,
         "--extractor-args", "youtube:player_client=default",
         "--no-playlist",
         "--embed-thumbnail",

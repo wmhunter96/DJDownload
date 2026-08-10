@@ -1,0 +1,32 @@
+<?xml version="1.0"?>
+<Container version="2">
+  <Name>DJDownload</Name>
+  <Repository>ghcr.io/wmhunter96/djdownload:latest</Repository>
+  <Registry>https://github.com/wmhunter96/DJDownload/pkgs/container/djdownload</Registry>
+  <Branch/>
+  <Network>bridge</Network>
+  <MyIP/>
+  <Shell>sh</Shell>
+  <Privileged>false</Privileged>
+  <Support>https://github.com/wmhunter96/DJDownload/issues</Support>
+  <Project>https://github.com/wmhunter96/DJDownload</Project>
+  <Overview>DJDownload downloads video and/or audio from YouTube, embeds thumbnails, and tags audio files with RELEASETYPE=album;live so Plex recognizes DJ sets as live albums, keeping them separate from studio releases.</Overview>
+  <Category>MediaApp:Music Downloaders:</Category>
+  <WebUI>http://[IP]:[PORT:8000]/</WebUI>
+  <TemplateURL>https://raw.githubusercontent.com/wmhunter96/DJDownload/main/unraid/djdownload.xml</TemplateURL>
+  <Icon>https://raw.githubusercontent.com/wmhunter96/DJDownload/main/unraid/icon.png</Icon>
+  <ExtraParams/>
+  <PostArgs/>
+  <CPUset/>
+  <DateInstalled/>
+  <DonateText/>
+  <DonateLink/>
+  <Requires/>
+  <Config Name="WebUI Port" Target="8000" Default="8000" Mode="tcp" Description="Port for the DJDownload web interface" Type="Port" Display="always" Required="true" Mask="false">8000</Config>
+  <Config Name="Config" Target="/config" Default="/mnt/user/appdata/djdownload/config" Mode="rw" Description="Persistent app settings (settings.yaml), survives container updates" Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/djdownload/config</Config>
+  <Config Name="Audio Output" Target="/downloads/audio" Default="/mnt/user/Music/Sets/Youtube" Mode="rw" Description="Where downloaded/tagged MP3s are written" Type="Path" Display="always" Required="true" Mask="false">/mnt/user/Music/Sets/Youtube</Config>
+  <Config Name="Video Output" Target="/downloads/video" Default="/mnt/user/MusicVideos/Sets" Mode="rw" Description="Where downloaded video files are written" Type="Path" Display="always" Required="true" Mask="false">/mnt/user/MusicVideos/Sets</Config>
+  <Config Name="Config Path" Target="CONFIG_PATH" Default="/config/settings.yaml" Mode="" Description="Path to settings.yaml inside the container" Type="Variable" Display="advanced" Required="false" Mask="false">/config/settings.yaml</Config>
+  <Config Name="yt-dlp Binary" Target="YT_DLP_BIN" Default="/usr/local/bin/yt-dlp" Mode="" Description="Path to the yt-dlp binary inside the container" Type="Variable" Display="advanced" Required="false" Mask="false">/usr/local/bin/yt-dlp</Config>
+  <Config Name="ffmpeg Binary" Target="FFMPEG_BIN" Default="ffmpeg" Mode="" Description="ffmpeg binary/path inside the container" Type="Variable" Display="advanced" Required="false" Mask="false">ffmpeg</Config>
+</Container>
