@@ -27,6 +27,20 @@ YT_DLP = os.environ.get("YT_DLP_BIN", "yt-dlp")
 NETWORK_ARGS = ["--force-ipv4"]
 
 
+class YtDlpForbiddenError(RuntimeError):
+    """Raised when yt-dlp returns an HTTP 403 Forbidden.
+
+    This usually means the installed yt-dlp binary is stale relative to
+    YouTube's current player-client requirements and needs to be updated.
+    """
+
+
+def _check_forbidden(output: str) -> None:
+    """Raise YtDlpForbiddenError if `output` looks like a 403 Forbidden response."""
+    if "403" in output and "forbidden" in output.lower():
+        raise YtDlpForbiddenError(output)
+
+
 # ---------------------------------------------------------------------------
 # Metadata
 # ---------------------------------------------------------------------------
@@ -46,6 +60,7 @@ def fetch_metadata(url: str) -> dict:
         text=True,
     )
     if result.returncode != 0:
+        _check_forbidden(result.stderr)
         raise RuntimeError(f"yt-dlp metadata fetch failed:\n{result.stderr}")
 
     data = json.loads(result.stdout)
@@ -120,9 +135,11 @@ def _run_yt_dlp(cmd: list, output_dir: str, ext_filter: str, log_callback=None) 
     )
 
     last_printed_path: Optional[str] = None
+    captured_lines: list = []
 
     for line in process.stdout:
         line = line.rstrip()
+        captured_lines.append(line)
         if log_callback:
             log_callback(line)
         else:
@@ -137,6 +154,7 @@ def _run_yt_dlp(cmd: list, output_dir: str, ext_filter: str, log_callback=None) 
     process.wait()
 
     if process.returncode != 0:
+        _check_forbidden("\n".join(captured_lines))
         return None
 
     # Trust printed path first

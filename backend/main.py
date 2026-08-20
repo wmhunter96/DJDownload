@@ -22,12 +22,31 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from backend.config import load_settings, save_settings
-from backend.downloader import fetch_metadata, download_audio, download_video, update_yt_dlp
+from backend.downloader import (
+    fetch_metadata,
+    download_audio,
+    download_video,
+    update_yt_dlp,
+    YtDlpForbiddenError,
+)
 from backend.tagging import tag_mp3
 
 import os
 
 app = FastAPI(title="DJDownload")
+
+
+@app.on_event("startup")
+async def _update_yt_dlp_on_startup():
+    """Self-update yt-dlp at startup so long-running containers don't go stale."""
+    def log(msg: str):
+        print(f"[startup] {msg}", flush=True)
+
+    try:
+        await asyncio.to_thread(update_yt_dlp, log)
+    except Exception as exc:
+        print(f"[startup] yt-dlp update failed, continuing with existing binary: {exc}", flush=True)
+
 
 # ---------------------------------------------------------------------------
 # In-memory job store  (replace with SQLite for persistence later)
@@ -142,6 +161,16 @@ def serve_ui():
 # Background job runner
 # ---------------------------------------------------------------------------
 
+async def _run_with_forbidden_retry(func, *args, log, **kwargs):
+    """Run `func` in a thread; on a 403 Forbidden, self-update yt-dlp once and retry."""
+    try:
+        return await asyncio.to_thread(func, *args, **kwargs)
+    except YtDlpForbiddenError:
+        log("⚠ yt-dlp got a 403 Forbidden — binary looks stale, self-updating...")
+        await asyncio.to_thread(update_yt_dlp, log)
+        return await asyncio.to_thread(func, *args, **kwargs)
+
+
 async def _run_job(job_id: str):
     job = jobs[job_id]
     job["status"] = "running"
@@ -155,7 +184,7 @@ async def _run_job(job_id: str):
     try:
         # 1. Fetch metadata
         log(f"Fetching metadata for: {job['url']}")
-        meta = await asyncio.to_thread(fetch_metadata, job["url"])
+        meta = await _run_with_forbidden_retry(fetch_metadata, job["url"], log=log)
         title = meta["title"]
         uploader = meta["uploader"]
         log(f"Title:    {title}")
@@ -177,11 +206,12 @@ async def _run_job(job_id: str):
         # 3. Download video
         if settings["video"]["enabled"]:
             log("Starting video download...")
-            video_path = await asyncio.to_thread(
+            video_path = await _run_with_forbidden_retry(
                 download_video,
                 job["url"],
                 settings["video"]["output_dir"],
                 log,
+                log=log,
             )
             if video_path:
                 log(f"Video saved: {video_path}")
@@ -191,11 +221,12 @@ async def _run_job(job_id: str):
         # 4. Download audio
         if settings["audio"]["enabled"]:
             log("Starting audio download...")
-            audio_path = await asyncio.to_thread(
+            audio_path = await _run_with_forbidden_retry(
                 download_audio,
                 job["url"],
                 settings["audio"]["output_dir"],
                 log,
+                log=log,
             )
             if audio_path:
                 log(f"Audio saved: {audio_path}")
