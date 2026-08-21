@@ -7,12 +7,16 @@ preserving any embedded artwork already added by yt-dlp.
 Tags written:
   - TIT2  (title)
   - TPE1  (artist)
+  - TPE2  (album artist — Plex groups a music library by album artist, not
+           track artist, so this must be set or Plex will file the track
+           under "Various Artists"/the channel name instead of the artist
+           the user provided)
   - TALB  (album)
   - TXXX:RELEASETYPE = album;live  (Plex live album detection)
 """
 
 from pathlib import Path
-from mutagen.id3 import ID3, TIT2, TPE1, TALB, TXXX, ID3NoHeaderError
+from mutagen.id3 import ID3, TIT2, TPE1, TPE2, TALB, TXXX, ID3NoHeaderError
 
 
 def tag_mp3(
@@ -43,6 +47,7 @@ def tag_mp3(
 
         tags["TIT2"] = TIT2(encoding=3, text=title)
         tags["TPE1"] = TPE1(encoding=3, text=artist)
+        tags["TPE2"] = TPE2(encoding=3, text=artist)
         tags["TALB"] = TALB(encoding=3, text=album)
         tags["TXXX:RELEASETYPE"] = TXXX(encoding=3, desc="RELEASETYPE", text=release_type)
 
