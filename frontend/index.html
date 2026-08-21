@@ -224,6 +224,42 @@
     text-overflow: ellipsis;
     margin-bottom: 6px;
   }
+  .job-card-row {
+    display: flex;
+    gap: 10px;
+  }
+  .job-card-thumb {
+    width: 64px;
+    height: 36px;
+    object-fit: cover;
+    border-radius: 3px;
+    background: #0d0d14;
+    border: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+  .job-card-thumb-empty {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--muted);
+    font-size: 14px;
+  }
+  .job-card-body {
+    flex: 1;
+    min-width: 0;
+  }
+  .job-card-artist {
+    font-family: var(--mono);
+    font-size: 10px;
+    font-weight: 600;
+    color: var(--accent);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    margin-bottom: 2px;
+  }
   .job-card-title {
     font-size: 13px;
     font-weight: 600;
@@ -646,7 +682,7 @@
     document.getElementById('detailView').style.display = 'flex';
 
     document.getElementById('dUrl').textContent = job.url;
-    document.getElementById('dTitle').textContent = job.url; // will update when log shows title
+    document.getElementById('dTitle').textContent = job.title || job.url;
 
     const badge = document.getElementById('dBadge');
     badge.textContent = job.status;
@@ -690,6 +726,33 @@
   // ── Job list (sidebar) ───────────────────────
   let allJobs = [];
 
+  // Shared card body: thumbnail + artist + title + url + status/time, used by
+  // both the Recent Jobs sidebar and the full Queue page.
+  function jobCardBody(job, { showFinished = false, showResult = false } = {}) {
+    const thumb = job.thumbnail
+      ? `<img class="job-card-thumb" src="${esc(job.thumbnail)}" alt="" loading="lazy" onerror="this.outerHTML='<div class=&quot;job-card-thumb job-card-thumb-empty&quot;>♪</div>'">`
+      : `<div class="job-card-thumb job-card-thumb-empty">♪</div>`;
+    const artist = job.artist || job.uploader || '';
+    const title = job.title || job.url;
+
+    return `
+      <div class="job-card-row">
+        ${thumb}
+        <div class="job-card-body">
+          ${artist ? `<div class="job-card-artist">${esc(artist)}</div>` : ''}
+          <div class="job-card-title">${esc(title)}</div>
+          <div class="job-card-url">${esc(job.url)}</div>
+          <div class="job-meta">
+            <span class="badge badge-${job.status}">${job.status}</span>
+            <span>${formatTime(job.created_at)}</span>
+            ${showFinished && job.finished_at ? `<span>finished ${formatTime(job.finished_at)}</span>` : ''}
+          </div>
+        </div>
+      </div>
+      ${showResult && job.result && job.result.audio_path ? `<div style="font-family:var(--mono);font-size:10px;color:var(--success);margin-top:6px;word-break:break-all;">${esc(job.result.audio_path)}</div>` : ''}
+    `;
+  }
+
   async function renderJobList() {
     try {
       const res = await fetch(`${API}/api/jobs`);
@@ -705,11 +768,7 @@
     container.innerHTML = allJobs.slice(0, 20).map(job => `
       <div class="job-card ${job.id === selectedJobId ? 'selected' : ''} ${job.status === 'running' ? 'active' : ''}"
            onclick="selectJob('${job.id}')">
-        <div class="job-card-url">${esc(job.url)}</div>
-        <div class="job-meta">
-          <span class="badge badge-${job.status}">${job.status}</span>
-          <span>${formatTime(job.created_at)}</span>
-        </div>
+        ${jobCardBody(job)}
       </div>
     `).join('');
   }
@@ -727,13 +786,7 @@
     }
     container.innerHTML = allJobs.map(job => `
       <div class="job-card" onclick="selectJob('${job.id}')">
-        <div class="job-card-url">${esc(job.url)}</div>
-        <div class="job-meta">
-          <span class="badge badge-${job.status}">${job.status}</span>
-          <span>${formatTime(job.created_at)}</span>
-          ${job.finished_at ? `<span>finished ${formatTime(job.finished_at)}</span>` : ''}
-        </div>
-        ${job.result && job.result.audio_path ? `<div style="font-family:var(--mono);font-size:10px;color:var(--success);margin-top:6px;word-break:break-all;">${esc(job.result.audio_path)}</div>` : ''}
+        ${jobCardBody(job, { showFinished: true, showResult: true })}
       </div>
     `).join('');
   }

@@ -118,6 +118,10 @@ async def submit_job(req: SubmitJobRequest, background_tasks: BackgroundTasks):
         "finished_at": None,
         "logs": [],
         "result": {},
+        "title": None,          # YouTube video title (from yt-dlp metadata)
+        "uploader": None,       # YouTube channel name (from yt-dlp metadata)
+        "thumbnail": None,      # YouTube video thumbnail URL (from yt-dlp metadata)
+        "artist": None,         # resolved artist: override, or settings custom name, or uploader
     }
     jobs[job_id] = job
     background_tasks.add_task(_run_job, job_id)
@@ -187,6 +191,9 @@ async def _run_job(job_id: str):
         meta = await _run_with_forbidden_retry(fetch_metadata, job["url"], log=log)
         title = meta["title"]
         uploader = meta["uploader"]
+        job["title"] = title
+        job["uploader"] = uploader
+        job["thumbnail"] = meta.get("thumbnail") or None
         log(f"Title:    {title}")
         log(f"Uploader: {uploader}")
 
@@ -198,6 +205,7 @@ async def _run_job(job_id: str):
             artist = settings["artist"]["custom_name"].strip()
         else:
             artist = uploader
+        job["artist"] = artist
         log(f"Artist:   {artist}")
 
         audio_path = None
