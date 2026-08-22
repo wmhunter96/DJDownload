@@ -128,6 +128,38 @@
 
   .field { display: flex; flex-direction: column; gap: 6px; }
 
+  /* ── DJ combobox (Discover tab) ── */
+  .dj-combobox { position: relative; }
+  .dj-suggestions {
+    position: absolute;
+    top: calc(100% + 4px);
+    left: 0; right: 0;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    max-height: 240px;
+    overflow-y: auto;
+    z-index: 20;
+    box-shadow: 0 10px 28px rgba(0,0,0,0.45);
+  }
+  .dj-suggestion {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 10px;
+    padding: 9px 12px;
+    font-size: 13px;
+    cursor: pointer;
+  }
+  .dj-suggestion:hover, .dj-suggestion.active { background: rgba(232,255,0,0.07); }
+  .dj-suggestion-qty {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--muted);
+    flex-shrink: 0;
+  }
+  .dj-suggestions-empty { padding: 12px; font-size: 12px; color: var(--muted); }
+
   /* Toggle row */
   .toggle-row {
     display: flex;
@@ -583,13 +615,19 @@
     <div id="page-discover" class="page" style="gap:16px;">
       <div class="section-label">Missed-Set Finder</div>
       <div style="display:flex;gap:10px;align-items:flex-end;">
-        <div class="field" style="flex:1;">
+        <div class="field dj-combobox" style="flex:1;">
           <label>DJ</label>
-          <select id="discoverDjSelect">
-            <option value="">Select a DJ…</option>
+          <input type="text" id="discoverDjInput" placeholder="Type to search DJs…" autocomplete="off" />
+          <div id="discoverDjSuggestions" class="dj-suggestions" style="display:none;"></div>
+        </div>
+        <div class="field" style="width:150px;">
+          <label>Sort</label>
+          <select id="discoverSortSelect">
+            <option value="name">Name (A–Z)</option>
+            <option value="qty">Most Sets</option>
           </select>
         </div>
-        <button class="btn-primary" id="discoverSearchBtn" style="width:auto;white-space:nowrap;padding:9px 20px;" onclick="runDiscoverySearch()">
+        <button class="btn-primary" id="discoverSearchBtn" style="width:auto;white-space:nowrap;padding:9px 20px;" disabled onclick="runDiscoverySearch()">
           🔍&nbsp; Search YouTube
         </button>
       </div>
@@ -990,15 +1028,22 @@
     return h > 0 ? `${h}:${mm}:${ss}` : `${mm}:${ss}`;
   }
 
+  let discoverDjs = [];    // [{name, count}] from the server
+  let selectedDj = null;   // canonical name of the confirmed DJ selection, or null
+
   async function loadDiscoverDjs() {
     try {
       const res = await fetch(`${API}/api/discovery/djs`);
       const data = await res.json();
-      const sel = document.getElementById('discoverDjSelect');
-      const current = sel.value;
-      sel.innerHTML = '<option value="">Select a DJ…</option>' +
-        (data.djs || []).map(dj => `<option value="${escAttr(dj.name)}">${esc(dj.name)} (${dj.count})</option>`).join('');
-      sel.value = current;
+      discoverDjs = data.djs || [];
+      const match = selectedDj && discoverDjs.find(dj => dj.name.toLowerCase() === selectedDj.toLowerCase());
+      if (match) {
+        // keep the selection, but refresh its displayed qty in case it changed
+        selectedDj = match.name;
+        document.getElementById('discoverDjInput').value = `${match.name} (${match.count})`;
+      } else if (selectedDj) {
+        clearDjSelection();   // the previously selected DJ no longer exists
+      }
     } catch {}
   }
 
@@ -1018,6 +1063,90 @@
       setTimeout(() => { btn.textContent = original; btn.disabled = false; }, 2000);
     }
   }
+
+  // ── DJ combobox: type-to-search + sort ────────
+  function sortedDjs(list) {
+    const mode = document.getElementById('discoverSortSelect').value;
+    const sorted = [...list];
+    if (mode === 'qty') {
+      sorted.sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
+    } else {
+      sorted.sort((a, b) => a.name.localeCompare(b.name));
+    }
+    return sorted;
+  }
+
+  function filteredDjs() {
+    const raw = document.getElementById('discoverDjInput').value.trim();
+    // If the input is still showing the confirmed "Name (Qty)" selection (as
+    // opposed to text the user is actively typing), browse the full list
+    // rather than filtering against that literal display string.
+    const confirmed = selectedDj && discoverDjs.find(dj => dj.name.toLowerCase() === selectedDj.toLowerCase());
+    const isConfirmedDisplay = confirmed && raw === `${confirmed.name} (${confirmed.count})`;
+    const query = isConfirmedDisplay ? '' : raw.toLowerCase();
+    return sortedDjs(discoverDjs).filter(dj => dj.name.toLowerCase().includes(query));
+  }
+
+  function renderDjSuggestions() {
+    const box = document.getElementById('discoverDjSuggestions');
+    if (!discoverDjs.length) {
+      box.innerHTML = `<div class="dj-suggestions-empty">No DJs yet — click "Scan Audio Library" or complete a download.</div>`;
+    } else {
+      const filtered = filteredDjs();
+      box.innerHTML = filtered.length
+        ? filtered.map(dj => `
+            <div class="dj-suggestion" data-name="${escAttr(dj.name)}">
+              <span>${esc(dj.name)}</span>
+              <span class="dj-suggestion-qty">${dj.count}</span>
+            </div>
+          `).join('')
+        : `<div class="dj-suggestions-empty">No matching DJs.</div>`;
+    }
+    box.style.display = '';
+  }
+
+  function hideDjSuggestions() {
+    document.getElementById('discoverDjSuggestions').style.display = 'none';
+  }
+
+  function clearDjSelection() {
+    selectedDj = null;
+    document.getElementById('discoverSearchBtn').disabled = true;
+  }
+
+  function selectDj(name) {
+    const match = discoverDjs.find(dj => dj.name.toLowerCase() === name.toLowerCase());
+    if (!match) return;
+    selectedDj = match.name;
+    document.getElementById('discoverDjInput').value = `${match.name} (${match.count})`;
+    document.getElementById('discoverSearchBtn').disabled = false;
+    hideDjSuggestions();
+  }
+
+  const discoverDjInputEl = document.getElementById('discoverDjInput');
+  discoverDjInputEl.addEventListener('input', () => {
+    clearDjSelection();
+    renderDjSuggestions();
+  });
+  discoverDjInputEl.addEventListener('focus', renderDjSuggestions);
+  discoverDjInputEl.addEventListener('blur', () => setTimeout(hideDjSuggestions, 150));
+  discoverDjInputEl.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      const first = filteredDjs()[0];
+      if (first) selectDj(first.name);
+    } else if (e.key === 'Escape') {
+      hideDjSuggestions();
+    }
+  });
+  // mousedown (not click) fires before the input's blur handler hides the list
+  document.getElementById('discoverDjSuggestions').addEventListener('mousedown', (e) => {
+    const item = e.target.closest('.dj-suggestion');
+    if (item) selectDj(item.dataset.name);
+  });
+  document.getElementById('discoverSortSelect').addEventListener('change', () => {
+    if (document.getElementById('discoverDjSuggestions').style.display !== 'none') renderDjSuggestions();
+  });
 
   function discoveryEmptyMessage(message) {
     document.getElementById('discoverEmptyText').textContent = message;
@@ -1061,8 +1190,8 @@
   }
 
   async function runDiscoverySearch() {
-    const dj = document.getElementById('discoverDjSelect').value;
-    if (!dj) { alert('Select a DJ to search for.'); return; }
+    if (!selectedDj) { alert('Select a DJ to search for.'); return; }
+    const dj = selectedDj;
     const btn = document.getElementById('discoverSearchBtn');
     btn.disabled = true;
     document.getElementById('discoverProgressWrap').style.display = '';
