@@ -12,7 +12,7 @@
     --bg: #0a0a0c;
     --surface: #111116;
     --border: #222230;
-    --accent: #e8ff00;
+    --accent: #ff0000;
     --accent2: #00d4ff;
     --danger: #ff4444;
     --success: #00ff88;
@@ -49,7 +49,7 @@
     font-size: 22px;
     letter-spacing: 0.08em;
     color: var(--accent);
-    text-shadow: 0 0 18px rgba(232,255,0,0.4);
+    text-shadow: 0 0 18px rgba(255,0,0,0.4);
   }
   .logo span { color: var(--muted); }
 
@@ -69,7 +69,7 @@
     transition: all 0.15s;
   }
   nav button:hover { color: var(--text); border-color: var(--border); }
-  nav button.active { color: var(--accent); border-color: var(--accent); background: rgba(232,255,0,0.06); }
+  nav button.active { color: var(--accent); border-color: var(--accent); background: rgba(255,0,0,0.06); }
 
   /* ── Layout ── */
   main {
@@ -124,7 +124,7 @@
     outline: none;
     transition: border-color 0.15s;
   }
-  input:focus, select:focus { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(232,255,0,0.08); }
+  input:focus, select:focus { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(255,0,0,0.08); }
   input::placeholder { color: var(--muted); }
 
   .field { display: flex; flex-direction: column; gap: 6px; }
@@ -152,7 +152,7 @@
     font-size: 13px;
     cursor: pointer;
   }
-  .dj-suggestion:hover, .dj-suggestion.active { background: rgba(232,255,0,0.07); }
+  .dj-suggestion:hover, .dj-suggestion.active { background: rgba(255,0,0,0.07); }
   .dj-suggestion-qty {
     font-family: var(--mono);
     color: var(--text);
@@ -179,7 +179,7 @@
     transition: all 0.15s;
   }
   .sort-btn:hover { color: var(--text); border-color: #333348; }
-  .sort-btn.active { color: var(--accent); border-color: var(--accent); background: rgba(232,255,0,0.06); }
+  .sort-btn.active { color: var(--accent); border-color: var(--accent); background: rgba(255,0,0,0.06); }
   .sort-arrow { font-size: 10px; width: 8px; display: inline-block; }
 
   /* Toggle row */
@@ -215,7 +215,7 @@
     top: 3px; left: 3px;
     transition: all 0.2s;
   }
-  .toggle input:checked + .toggle-track { background: rgba(232,255,0,0.2); }
+  .toggle input:checked + .toggle-track { background: rgba(255,0,0,0.2); }
   .toggle input:checked + .toggle-track::after { left: 23px; background: var(--accent); }
 
   /* Buttons */
@@ -233,9 +233,9 @@
     cursor: pointer;
     width: 100%;
     transition: all 0.15s;
-    box-shadow: 0 0 24px rgba(232,255,0,0.2);
+    box-shadow: 0 0 24px rgba(255,0,0,0.2);
   }
-  .btn-primary:hover { background: #f4ff33; box-shadow: 0 0 32px rgba(232,255,0,0.35); transform: translateY(-1px); }
+  .btn-primary:hover { background: #ff3333; box-shadow: 0 0 32px rgba(255,0,0,0.35); transform: translateY(-1px); }
   .btn-primary:active { transform: translateY(0); }
   .btn-primary:disabled { opacity: 0.4; cursor: not-allowed; transform: none; }
 
@@ -267,7 +267,7 @@
   }
   .job-card:hover { border-color: #333348; }
   .job-card.active { border-color: var(--accent2); }
-  .job-card.selected { border-color: var(--accent); background: rgba(232,255,0,0.03); }
+  .job-card.selected { border-color: var(--accent); background: rgba(255,0,0,0.03); }
 
   .job-card-url {
     font-family: var(--mono);
