@@ -21,12 +21,14 @@ from mutagen.mp3 import MP3
 
 
 class LibraryEntry(TypedDict):
+    filename: str
     artist: str
     title: str
     youtube_id: Optional[str]
     duration_s: Optional[float]
     size_bytes: Optional[int]
     mtime: Optional[float]
+    has_thumbnail: bool
 
 
 class ArtistAnalytics(TypedDict):
@@ -77,12 +79,14 @@ def scan_library(audio_dir: str) -> List[LibraryEntry]:
             pass
 
         entries.append({
+            "filename": os.path.basename(path),
             "artist": artist,
             "title": title,
             "youtube_id": youtube_id or None,
             "duration_s": duration_s,
             "size_bytes": size_bytes,
             "mtime": mtime,
+            "has_thumbnail": bool(tags.getall("APIC")),
         })
 
     return entries
@@ -125,6 +129,41 @@ def analytics_by_artist(audio_dir: str) -> List[ArtistAnalytics]:
             "most_recent_added": most_recent,
         })
     return results
+
+
+def list_files_by_artist(audio_dir: str, artist: str) -> List[LibraryEntry]:
+    """Every library entry by `artist` (case-insensitive), newest first — backs
+    the Analytics tab's per-DJ file grid."""
+    target = artist.strip().lower()
+    entries = [e for e in scan_library(audio_dir) if e["artist"].strip().lower() == target]
+    entries.sort(key=lambda e: e["mtime"] or 0, reverse=True)
+    return entries
+
+
+def get_thumbnail(audio_dir: str, filename: str) -> Optional[tuple]:
+    """Return (image_bytes, mime_type) for `filename`'s embedded cover art
+    (the thumbnail yt-dlp embeds via --embed-thumbnail), or None if the
+    file/tag doesn't exist.
+
+    `filename` must be a bare filename with no path separators — it comes
+    from a query param, so this guards against escaping `audio_dir` (e.g.
+    "../../etc/passwd", where basename() would silently defang it if we
+    didn't reject the mismatch outright).
+    """
+    if not filename or filename != os.path.basename(filename):
+        return None
+    path = os.path.join(audio_dir, filename)
+    if not os.path.isfile(path):
+        return None
+    try:
+        tags = ID3(path)
+    except Exception:
+        return None
+    frames = tags.getall("APIC")
+    if not frames:
+        return None
+    frame = frames[0]
+    return frame.data, frame.mime or "image/jpeg"
 
 
 def list_artists(audio_dir: str) -> List[str]:

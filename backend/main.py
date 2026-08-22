@@ -12,7 +12,9 @@ Endpoints:
   POST /api/discovery/scan-library  → backfill known DJs from audio ID3 tags
   POST /api/discovery/search        → search YouTube for missed sets (one DJ)
   POST /api/discovery/dismiss       → dismiss a candidate (won't resurface)
-  GET  /api/analytics → per-DJ set-count leaderboard (Analytics tab)
+  GET  /api/analytics               → per-DJ set-count leaderboard (Analytics tab)
+  GET  /api/analytics/files         → files for one DJ, for the drill-down grid
+  GET  /api/analytics/thumbnail     → embedded cover art for one file
   GET  /api/status    → health check
 """
 
@@ -22,7 +24,7 @@ from datetime import datetime
 from typing import Dict, List, Optional
 
 from fastapi import FastAPI, BackgroundTasks, HTTPException
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -287,6 +289,42 @@ def get_analytics():
         "most_sets": artists[0] if artists else None,
         "fewest_sets": min(artists, key=lambda a: a["count"]) if artists else None,
     }
+
+
+@app.get("/api/analytics/files")
+def get_analytics_files(artist: str):
+    """Every downloaded file for one DJ — backs the Analytics tab's drill-down
+    grid (thumbnail, title, length, size, date added)."""
+    settings = load_settings()
+    audio_dir = settings["audio"]["output_dir"]
+    entries = library.list_files_by_artist(audio_dir, artist)
+
+    return {
+        "artist": artist,
+        "files": [
+            {
+                "filename": e["filename"],
+                "title": e["title"],
+                "duration_s": e["duration_s"],
+                "size_bytes": e["size_bytes"],
+                "added": datetime.fromtimestamp(e["mtime"]).isoformat() if e["mtime"] is not None else None,
+                "has_thumbnail": e["has_thumbnail"],
+            }
+            for e in entries
+        ],
+    }
+
+
+@app.get("/api/analytics/thumbnail")
+def get_analytics_thumbnail(filename: str):
+    """Embedded cover art (yt-dlp's --embed-thumbnail) for one library file."""
+    settings = load_settings()
+    audio_dir = settings["audio"]["output_dir"]
+    result = library.get_thumbnail(audio_dir, filename)
+    if not result:
+        raise HTTPException(status_code=404, detail="Thumbnail not found")
+    data, mime = result
+    return Response(content=data, media_type=mime, headers={"Cache-Control": "private, max-age=86400"})
 
 
 # ---------------------------------------------------------------------------

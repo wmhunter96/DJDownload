@@ -212,12 +212,63 @@
   .analytics-table th.sortable { cursor: pointer; user-select: none; }
   .analytics-table th.sortable:hover { color: var(--text); }
   .analytics-table th.sort-active { color: var(--accent); }
+  .analytics-table tbody tr { cursor: pointer; }
   .analytics-table tr:hover td { background: rgba(255,255,255,0.02); }
   .analytics-rank { font-family: var(--mono); color: var(--muted); }
   .analytics-dj { font-weight: 600; }
   .analytics-mono { font-family: var(--mono); font-size: 12px; color: var(--text); }
   .analytics-bar-track { height: 5px; width: 90px; background: #1a1a26; border-radius: 3px; overflow: hidden; }
   .analytics-bar-fill { height: 100%; background: var(--accent); border-radius: 3px; }
+
+  /* ── Analytics: per-DJ file grid (drill-down) ── */
+  .file-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 14px;
+  }
+  .file-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    transition: border-color 0.15s;
+  }
+  .file-card:hover { border-color: #333348; }
+  .file-card-thumb, .file-card-thumb-empty {
+    width: 100%;
+    aspect-ratio: 16 / 9;
+    background: #0d0d14;
+    display: block;
+  }
+  .file-card-thumb { object-fit: cover; }
+  .file-card-thumb-empty {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--muted);
+    font-size: 26px;
+  }
+  .file-card-body { padding: 10px 12px; display: flex; flex-direction: column; gap: 6px; }
+  .file-card-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text);
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    min-height: 2.6em;
+  }
+  .file-card-meta {
+    display: flex;
+    justify-content: space-between;
+    gap: 8px;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--muted);
+  }
 
   /* ── Sort buttons (Discover tab) ── */
   .sort-buttons { display: flex; gap: 6px; }
@@ -593,6 +644,10 @@
       overflow-x: auto;
     }
 
+    .file-grid {
+      grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+    }
+
     .settings-card[style*="grid-column"] {
       grid-column: 1 !important;
     }
@@ -744,42 +799,58 @@
     </div>
 
     <!-- Analytics page -->
-    <div id="page-analytics" class="page" style="gap:16px;">
-      <div class="section-label">Library Analytics</div>
+    <div id="page-analytics" class="page">
 
-      <div class="analytics-stats" id="analyticsStats"></div>
+      <!-- Leaderboard sub-view -->
+      <div id="analyticsLeaderboardView" style="display:flex;flex-direction:column;gap:16px;flex:1;min-height:0;">
+        <div class="section-label">Library Analytics</div>
 
-      <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;">
-        <div class="section-label" style="margin-bottom:0;border-bottom:none;padding-bottom:0;">Leaderboard — Sets per DJ</div>
-        <div style="display:flex;align-items:center;gap:10px;">
-          <div class="sort-buttons">
-            <button type="button" class="sort-btn" id="analyticsSortByNameBtn" onclick="setAnalyticsSort('artist')">Aa<span class="sort-arrow" id="analyticsSortArrowName"></span></button>
-            <button type="button" class="sort-btn" id="analyticsSortByQtyBtn" onclick="setAnalyticsSort('count')">123<span class="sort-arrow" id="analyticsSortArrowQty"></span></button>
+        <div class="analytics-stats" id="analyticsStats"></div>
+
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;">
+          <div class="section-label" style="margin-bottom:0;border-bottom:none;padding-bottom:0;">Leaderboard — Sets per DJ</div>
+          <div style="display:flex;align-items:center;gap:10px;">
+            <div class="sort-buttons">
+              <button type="button" class="sort-btn" id="analyticsSortByNameBtn" onclick="setAnalyticsSort('artist')">Aa<span class="sort-arrow" id="analyticsSortArrowName"></span></button>
+              <button type="button" class="sort-btn" id="analyticsSortByQtyBtn" onclick="setAnalyticsSort('count')">123<span class="sort-arrow" id="analyticsSortArrowQty"></span></button>
+            </div>
+            <button class="btn-secondary" style="width:auto;" onclick="loadAnalytics()">↻ Refresh</button>
           </div>
-          <button class="btn-secondary" style="width:auto;" onclick="loadAnalytics()">↻ Refresh</button>
+        </div>
+
+        <div id="analyticsTableWrap" style="flex:1;overflow-y:auto;">
+          <table class="analytics-table" id="analyticsTable">
+            <thead>
+              <tr>
+                <th style="width:36px;">#</th>
+                <th class="sortable" data-sort="artist">DJ</th>
+                <th class="sortable" data-sort="count">Sets</th>
+                <th></th>
+                <th class="sortable" data-sort="total_duration_s">Duration</th>
+                <th class="sortable" data-sort="total_size_bytes">Size</th>
+                <th class="sortable" data-sort="most_recent_added">Last Added</th>
+              </tr>
+            </thead>
+            <tbody id="analyticsTbody"></tbody>
+          </table>
+          <div class="empty-state" id="analyticsEmpty" style="height:200px;display:none;">
+            <div class="empty-state-icon">📊</div>
+            <span id="analyticsEmptyText">No sets in the library yet.</span>
+          </div>
         </div>
       </div>
 
-      <div id="analyticsTableWrap" style="flex:1;overflow-y:auto;">
-        <table class="analytics-table" id="analyticsTable">
-          <thead>
-            <tr>
-              <th style="width:36px;">#</th>
-              <th class="sortable" data-sort="artist">DJ</th>
-              <th class="sortable" data-sort="count">Sets</th>
-              <th></th>
-              <th class="sortable" data-sort="total_duration_s">Duration</th>
-              <th class="sortable" data-sort="total_size_bytes">Size</th>
-              <th class="sortable" data-sort="most_recent_added">Last Added</th>
-            </tr>
-          </thead>
-          <tbody id="analyticsTbody"></tbody>
-        </table>
-        <div class="empty-state" id="analyticsEmpty" style="height:200px;display:none;">
-          <div class="empty-state-icon">📊</div>
-          <span id="analyticsEmptyText">No sets in the library yet.</span>
+      <!-- Per-DJ file grid sub-view (drill-down) -->
+      <div id="analyticsFilesView" style="display:none;flex-direction:column;gap:16px;flex:1;min-height:0;">
+        <div style="display:flex;align-items:center;gap:12px;">
+          <button class="btn-secondary" style="width:auto;" onclick="closeArtistFiles()">← Back</button>
+          <div class="section-label" id="analyticsFilesTitle" style="margin-bottom:0;border-bottom:none;padding-bottom:0;">—</div>
+        </div>
+        <div id="analyticsFilesGridWrap" style="flex:1;overflow-y:auto;">
+          <div class="file-grid" id="analyticsFilesGrid"></div>
         </div>
       </div>
+
     </div>
 
     <!-- Settings page -->
@@ -867,7 +938,7 @@
       if (page === 'jobs') renderAllJobs();
       if (page === 'settings') loadSettings();
       if (page === 'discover') loadDiscoverDjs();
-      if (page === 'analytics') loadAnalytics();
+      if (page === 'analytics') { closeArtistFiles(); loadAnalytics(); }
     });
   });
 
@@ -1516,7 +1587,7 @@
     const sorted = sortedAnalytics();
     const maxCount = Math.max(...analyticsData.map(a => a.count), 1);
     tbody.innerHTML = sorted.map((a, i) => `
-      <tr>
+      <tr data-artist="${escAttr(a.artist)}" title="View ${escAttr(a.artist)}'s downloaded sets">
         <td class="analytics-rank">${i + 1}</td>
         <td class="analytics-dj">${esc(a.artist)}</td>
         <td class="analytics-mono">${a.count}</td>
@@ -1530,9 +1601,68 @@
 
   document.getElementById('analyticsTable').addEventListener('click', (e) => {
     const th = e.target.closest('th.sortable');
-    if (th) setAnalyticsSort(th.dataset.sort);
+    if (th) { setAnalyticsSort(th.dataset.sort); return; }
+    const row = e.target.closest('tbody tr');
+    if (row) openArtistFiles(row.dataset.artist);
   });
   updateAnalyticsSortButtons();
+
+  // ── Analytics: per-DJ file grid (drill-down) ─
+  async function openArtistFiles(artist) {
+    document.getElementById('analyticsLeaderboardView').style.display = 'none';
+    const view = document.getElementById('analyticsFilesView');
+    view.style.display = 'flex';
+    document.getElementById('analyticsFilesTitle').textContent = artist;
+
+    const grid = document.getElementById('analyticsFilesGrid');
+    grid.innerHTML = `<div class="empty-state" style="grid-column:1/-1;height:200px;"><div class="empty-state-icon">⏳</div><span>Loading…</span></div>`;
+
+    try {
+      const res = await fetch(`${API}/api/analytics/files?artist=${encodeURIComponent(artist)}`);
+      const data = await res.json();
+      renderArtistFiles(data.files || []);
+    } catch (e) {
+      grid.innerHTML = `<div class="empty-state" style="grid-column:1/-1;height:200px;"><div class="empty-state-icon">⚠</div><span>Failed to load files: ${esc(String(e))}</span></div>`;
+    }
+  }
+
+  function closeArtistFiles() {
+    document.getElementById('analyticsFilesView').style.display = 'none';
+    document.getElementById('analyticsLeaderboardView').style.display = 'flex';
+  }
+
+  function fileCardHTML(file) {
+    const thumbSrc = file.has_thumbnail
+      ? `${API}/api/analytics/thumbnail?filename=${encodeURIComponent(file.filename)}`
+      : null;
+    const thumb = thumbSrc
+      ? `<img class="file-card-thumb" src="${escAttr(thumbSrc)}" alt="" loading="lazy" onerror="this.outerHTML='<div class=&quot;file-card-thumb-empty&quot;>♪</div>'">`
+      : `<div class="file-card-thumb-empty">♪</div>`;
+    return `
+      <div class="file-card">
+        ${thumb}
+        <div class="file-card-body">
+          <div class="file-card-title">${esc(file.title)}</div>
+          <div class="file-card-meta">
+            <span>${file.duration_s != null ? formatDuration(file.duration_s) : '—'}</span>
+            <span>${formatBytes(file.size_bytes)}</span>
+          </div>
+          <div class="file-card-meta">
+            <span>${formatDate(file.added)}</span>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  function renderArtistFiles(files) {
+    const grid = document.getElementById('analyticsFilesGrid');
+    if (!files.length) {
+      grid.innerHTML = `<div class="empty-state" style="grid-column:1/-1;height:200px;"><div class="empty-state-icon">📁</div><span>No files found for this DJ.</span></div>`;
+      return;
+    }
+    grid.innerHTML = files.map(fileCardHTML).join('');
+  }
 
   // ── Init ─────────────────────────────────────
   renderJobList();
