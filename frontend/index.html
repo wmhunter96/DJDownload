@@ -160,6 +160,65 @@
   }
   .dj-suggestions-empty { padding: 12px; font-size: 12px; color: var(--muted); }
 
+  /* ── Analytics page ── */
+  .analytics-stats {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 14px;
+  }
+  .stat-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 16px 18px;
+    min-width: 0;
+  }
+  .stat-card-label {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.12em;
+    color: var(--muted);
+    text-transform: uppercase;
+    margin-bottom: 8px;
+  }
+  .stat-card-value { font-size: 24px; font-weight: 700; }
+  .stat-card-sub {
+    font-size: 11px;
+    color: var(--muted);
+    margin-top: 4px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .analytics-table { width: 100%; border-collapse: collapse; }
+  .analytics-table th, .analytics-table td {
+    text-align: left;
+    padding: 10px 12px;
+    font-size: 13px;
+    border-bottom: 1px solid #1a1a26;
+    white-space: nowrap;
+  }
+  .analytics-table th {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    color: var(--muted);
+    text-transform: uppercase;
+    position: sticky;
+    top: 0;
+    background: var(--bg);
+  }
+  .analytics-table th.sortable { cursor: pointer; user-select: none; }
+  .analytics-table th.sortable:hover { color: var(--text); }
+  .analytics-table th.sort-active { color: var(--accent); }
+  .analytics-table tr:hover td { background: rgba(255,255,255,0.02); }
+  .analytics-rank { font-family: var(--mono); color: var(--muted); }
+  .analytics-dj { font-weight: 600; }
+  .analytics-mono { font-family: var(--mono); font-size: 12px; color: var(--text); }
+  .analytics-bar-track { height: 5px; width: 90px; background: #1a1a26; border-radius: 3px; overflow: hidden; }
+  .analytics-bar-fill { height: 100%; background: var(--accent); border-radius: 3px; }
+
   /* ── Sort buttons (Discover tab) ── */
   .sort-buttons { display: flex; gap: 6px; }
   .sort-btn {
@@ -526,6 +585,14 @@
       grid-template-columns: 1fr;
     }
 
+    .analytics-stats {
+      grid-template-columns: repeat(2, 1fr);
+    }
+
+    #analyticsTableWrap {
+      overflow-x: auto;
+    }
+
     .settings-card[style*="grid-column"] {
       grid-column: 1 !important;
     }
@@ -553,6 +620,7 @@
   <nav>
     <button class="active" data-page="download">Download</button>
     <button data-page="discover">Discover</button>
+    <button data-page="analytics">Analytics</button>
     <button data-page="jobs">Queue</button>
     <button data-page="settings">Settings</button>
   </nav>
@@ -675,6 +743,39 @@
       </div>
     </div>
 
+    <!-- Analytics page -->
+    <div id="page-analytics" class="page" style="gap:16px;">
+      <div class="section-label">Library Analytics</div>
+
+      <div class="analytics-stats" id="analyticsStats"></div>
+
+      <div style="display:flex;align-items:center;justify-content:space-between;">
+        <div class="section-label" style="margin-bottom:0;border-bottom:none;padding-bottom:0;">Leaderboard — Sets per DJ</div>
+        <button class="btn-secondary" style="width:auto;" onclick="loadAnalytics()">↻ Refresh</button>
+      </div>
+
+      <div id="analyticsTableWrap" style="flex:1;overflow-y:auto;">
+        <table class="analytics-table" id="analyticsTable">
+          <thead>
+            <tr>
+              <th style="width:36px;">#</th>
+              <th class="sortable" data-sort="artist">DJ</th>
+              <th class="sortable" data-sort="count">Sets</th>
+              <th></th>
+              <th class="sortable" data-sort="total_duration_s">Duration</th>
+              <th class="sortable" data-sort="total_size_bytes">Size</th>
+              <th class="sortable" data-sort="most_recent_added">Last Added</th>
+            </tr>
+          </thead>
+          <tbody id="analyticsTbody"></tbody>
+        </table>
+        <div class="empty-state" id="analyticsEmpty" style="height:200px;display:none;">
+          <div class="empty-state-icon">📊</div>
+          <span id="analyticsEmptyText">No sets in the library yet.</span>
+        </div>
+      </div>
+    </div>
+
     <!-- Settings page -->
     <div id="page-settings" class="page">
       <div class="section-label">Configuration</div>
@@ -760,6 +861,7 @@
       if (page === 'jobs') renderAllJobs();
       if (page === 'settings') loadSettings();
       if (page === 'discover') loadDiscoverDjs();
+      if (page === 'analytics') loadAnalytics();
     });
   });
 
@@ -1289,6 +1391,126 @@
     if (dlBtn) { downloadDiscoveryCandidate(dlBtn.dataset.url, dlBtn.dataset.artist, dlBtn); return; }
     const dismissBtn = e.target.closest('.discover-dismiss');
     if (dismissBtn) { dismissDiscoveryCandidate(dismissBtn.dataset.videoId, dismissBtn); return; }
+  });
+
+  // ── Analytics ────────────────────────────────
+  let analyticsData = [];         // [{artist, count, total_duration_s, total_size_bytes, most_recent_added}]
+  let analyticsSortField = 'count';
+  let analyticsSortDir = 'desc';
+
+  function formatBytes(bytes) {
+    if (!bytes) return '—';
+    const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+    let i = 0, v = bytes;
+    while (v >= 1024 && i < units.length - 1) { v /= 1024; i++; }
+    return `${v.toFixed(i > 0 && v < 10 ? 1 : 0)} ${units[i]}`;
+  }
+
+  function formatDate(iso) {
+    return iso ? new Date(iso).toLocaleDateString() : '—';
+  }
+
+  async function loadAnalytics() {
+    try {
+      const res = await fetch(`${API}/api/analytics`);
+      const data = await res.json();
+      analyticsData = data.artists || [];
+      renderAnalyticsStats(data);
+      renderAnalyticsTable();
+    } catch (e) {
+      analyticsData = [];
+      document.getElementById('analyticsStats').innerHTML = '';
+      document.getElementById('analyticsTbody').innerHTML = '';
+      document.getElementById('analyticsEmptyText').textContent = 'Failed to load analytics: ' + e;
+      document.getElementById('analyticsEmpty').style.display = 'flex';
+    }
+  }
+
+  function renderAnalyticsStats(data) {
+    const most = data.most_sets;
+    const fewest = data.fewest_sets;
+    document.getElementById('analyticsStats').innerHTML = `
+      <div class="stat-card">
+        <div class="stat-card-label">DJs Tracked</div>
+        <div class="stat-card-value">${data.total_djs}</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-card-label">Total Sets</div>
+        <div class="stat-card-value">${data.total_sets}</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-card-label">Most Sets</div>
+        <div class="stat-card-value">${most ? most.count : '—'}</div>
+        <div class="stat-card-sub">${most ? esc(most.artist) : 'No sets yet'}</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-card-label">Fewest Sets</div>
+        <div class="stat-card-value">${fewest ? fewest.count : '—'}</div>
+        <div class="stat-card-sub">${fewest ? esc(fewest.artist) : 'No sets yet'}</div>
+      </div>
+    `;
+  }
+
+  function setAnalyticsSort(field) {
+    if (analyticsSortField === field) {
+      analyticsSortDir = analyticsSortDir === 'asc' ? 'desc' : 'asc';
+    } else {
+      analyticsSortField = field;
+      analyticsSortDir = field === 'artist' ? 'asc' : 'desc';   // biggest/most-recent first feels natural
+    }
+    renderAnalyticsTable();
+  }
+
+  function sortedAnalytics() {
+    const sorted = [...analyticsData];
+    const dirMul = analyticsSortDir === 'asc' ? 1 : -1;
+    sorted.sort((a, b) => {
+      if (analyticsSortField === 'artist') {
+        return dirMul * a.artist.localeCompare(b.artist);
+      }
+      if (analyticsSortField === 'most_recent_added') {
+        const av = a.most_recent_added ? new Date(a.most_recent_added).getTime() : -Infinity;
+        const bv = b.most_recent_added ? new Date(b.most_recent_added).getTime() : -Infinity;
+        return dirMul * (av - bv) || a.artist.localeCompare(b.artist);
+      }
+      return dirMul * (a[analyticsSortField] - b[analyticsSortField]) || a.artist.localeCompare(b.artist);
+    });
+    return sorted;
+  }
+
+  function renderAnalyticsTable() {
+    document.querySelectorAll('#analyticsTable th.sortable').forEach(th => {
+      th.classList.toggle('sort-active', th.dataset.sort === analyticsSortField);
+    });
+
+    const tbody = document.getElementById('analyticsTbody');
+    const empty = document.getElementById('analyticsEmpty');
+    if (!analyticsData.length) {
+      tbody.innerHTML = '';
+      document.getElementById('analyticsEmptyText').textContent = 'No sets in the library yet.';
+      empty.style.display = 'flex';
+      return;
+    }
+    empty.style.display = 'none';
+
+    const sorted = sortedAnalytics();
+    const maxCount = Math.max(...analyticsData.map(a => a.count), 1);
+    tbody.innerHTML = sorted.map((a, i) => `
+      <tr>
+        <td class="analytics-rank">${i + 1}</td>
+        <td class="analytics-dj">${esc(a.artist)}</td>
+        <td class="analytics-mono">${a.count}</td>
+        <td><div class="analytics-bar-track"><div class="analytics-bar-fill" style="width:${(a.count / maxCount * 100).toFixed(0)}%"></div></div></td>
+        <td class="analytics-mono">${formatDuration(a.total_duration_s)}</td>
+        <td class="analytics-mono">${formatBytes(a.total_size_bytes)}</td>
+        <td class="analytics-mono">${formatDate(a.most_recent_added)}</td>
+      </tr>
+    `).join('');
+  }
+
+  document.getElementById('analyticsTable').addEventListener('click', (e) => {
+    const th = e.target.closest('th.sortable');
+    if (th) setAnalyticsSort(th.dataset.sort);
   });
 
   // ── Init ─────────────────────────────────────

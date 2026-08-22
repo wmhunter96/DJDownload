@@ -12,6 +12,7 @@ Endpoints:
   POST /api/discovery/scan-library  → backfill known DJs from audio ID3 tags
   POST /api/discovery/search        → search YouTube for missed sets (one DJ)
   POST /api/discovery/dismiss       → dismiss a candidate (won't resurface)
+  GET  /api/analytics → per-DJ set-count leaderboard (Analytics tab)
   GET  /api/status    → health check
 """
 
@@ -265,6 +266,27 @@ def discovery_dismiss(req: DiscoveryDismissRequest):
         dismissed.append(req.video_id)
     save_settings(settings)
     return {"ok": True}
+
+
+# ---------------------------------------------------------------------------
+# Routes — analytics
+# ---------------------------------------------------------------------------
+
+@app.get("/api/analytics")
+def get_analytics():
+    """Per-DJ leaderboard for the Analytics tab, built from the audio library's
+    ID3 tags (same data source as the Discover tab's known-DJ list)."""
+    settings = load_settings()
+    artists = library.analytics_by_artist(settings["audio"]["output_dir"])
+    artists.sort(key=lambda a: (-a["count"], a["artist"].lower()))
+
+    return {
+        "artists": artists,
+        "total_djs": len(artists),
+        "total_sets": sum(a["count"] for a in artists),
+        "most_sets": artists[0] if artists else None,
+        "fewest_sets": min(artists, key=lambda a: a["count"]) if artists else None,
+    }
 
 
 # ---------------------------------------------------------------------------
