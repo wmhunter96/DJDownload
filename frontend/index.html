@@ -968,6 +968,14 @@
     } catch { plexConfigured = false; }
   }
 
+  // Fire-and-forget: nudge Plex to rescan its music library whenever the
+  // Analytics tab is opened, so newly-downloaded sets show up as playable
+  // without the user having to press anything Plex-side.
+  function refreshPlexLibrary() {
+    if (!plexConfigured) return;
+    fetch(`${API}/api/analytics/plex-refresh`, { method: 'POST' }).catch(() => {});
+  }
+
   // ── Navigation ──────────────────────────────
   document.querySelectorAll('nav button').forEach(btn => {
     btn.addEventListener('click', () => {
@@ -979,7 +987,7 @@
       if (page === 'jobs') renderAllJobs();
       if (page === 'settings') loadSettings();
       if (page === 'discover') loadDiscoverDjs();
-      if (page === 'analytics') { closeArtistFiles(); loadAnalytics(); }
+      if (page === 'analytics') { closeArtistFiles(); loadAnalytics(); refreshPlexLibrary(); }
     });
   });
 

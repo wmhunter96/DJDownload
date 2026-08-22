@@ -16,6 +16,7 @@ Endpoints:
   GET  /api/analytics/files         → files for one DJ, for the drill-down grid
   GET  /api/analytics/thumbnail     → embedded cover art for one file
   GET  /api/analytics/plex-link     → Plex Web deep link for one file ("Play in Plex")
+  POST /api/analytics/plex-refresh  → nudge Plex to (re)scan its music library
   GET  /api/status    → health check
 """
 
@@ -347,6 +348,20 @@ def get_analytics_plex_link(filename: str):
     if not url:
         raise HTTPException(status_code=404, detail="Not found in Plex library")
     return {"url": url}
+
+
+@app.post("/api/analytics/plex-refresh")
+def post_analytics_plex_refresh():
+    """Nudge Plex to (re)scan its music library and drop our own cached
+    filename index, so newly-downloaded sets show up as playable without
+    waiting on Plex's own scan interval or our cache TTL. Fired automatically
+    when the Analytics tab is opened — best-effort, always returns ok even
+    if Plex isn't configured/reachable (check server logs for [plex] lines)."""
+    settings = load_settings()
+    plex_settings = settings["plex"]
+    plex.trigger_scan(plex_settings["server_url"], plex_settings["token"])
+    plex.invalidate_cache()
+    return {"ok": True}
 
 
 # ---------------------------------------------------------------------------

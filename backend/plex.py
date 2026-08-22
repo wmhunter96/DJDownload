@@ -9,6 +9,11 @@ path translation between containers needed.
 
 Uses stdlib urllib rather than adding an HTTP client dependency, since this
 is a handful of simple authenticated GETs against the Plex API.
+
+Every failure is logged to stdout (`[plex] ...`, visible in `docker logs`)
+rather than swallowed silently — a misconfigured server URL/token, or a
+container that can't reach Plex over the network, otherwise looks identical
+to "this specific file isn't in Plex yet" from the UI's point of view.
 """
 
 import json
@@ -19,7 +24,8 @@ import urllib.parse
 import urllib.request
 from typing import Dict, Optional
 
-_CACHE_TTL_S = 300  # rebuild the filename->ratingKey index at most every 5 minutes
+_CACHE_TTL_S = 60  # rebuild the filename->ratingKey index at most once a minute
+_PAGE_SIZE = 100_000  # large enough to always get the whole library in one request
 
 
 class PlexError(Exception):
@@ -34,6 +40,10 @@ _cache = {
 }
 
 
+def _log(msg: str) -> None:
+    print(f"[plex] {msg}", flush=True)
+
+
 def _get_json(url: str, token: str) -> dict:
     req = urllib.request.Request(
         url, headers={"X-Plex-Token": token, "Accept": "application/json"}
@@ -42,14 +52,14 @@ def _get_json(url: str, token: str) -> dict:
         with urllib.request.urlopen(req, timeout=10) as resp:
             return json.load(resp)
     except (urllib.error.URLError, TimeoutError, ValueError) as exc:
-        raise PlexError(f"Plex request to {url} failed: {exc}") from exc
+        raise PlexError(f"request to {url} failed: {exc}") from exc
 
 
 def _machine_identifier(server_url: str, token: str) -> str:
     data = _get_json(f"{server_url}/identity", token)
     machine_id = data.get("MediaContainer", {}).get("machineIdentifier")
     if not machine_id:
-        raise PlexError("Plex server didn't return a machine identifier")
+        raise PlexError("server didn't return a machine identifier")
     return machine_id
 
 
@@ -58,14 +68,20 @@ def _first_music_section(server_url: str, token: str) -> str:
     libraries). If you have more than one music library, whichever comes
     back first from Plex wins."""
     data = _get_json(f"{server_url}/library/sections", token)
-    for section in data.get("MediaContainer", {}).get("Directory", []):
+    sections = data.get("MediaContainer", {}).get("Directory", [])
+    for section in sections:
         if section.get("type") == "artist":
             return section["key"]
-    raise PlexError("No music library section found on this Plex server")
+    seen_types = [s.get("type") for s in sections]
+    raise PlexError(f"no music (artist-type) library section found — sections seen: {seen_types}")
 
 
 def _build_file_index(server_url: str, token: str, section_key: str) -> Dict[str, str]:
-    data = _get_json(f"{server_url}/library/sections/{section_key}/all?type=10", token)
+    url = (
+        f"{server_url}/library/sections/{section_key}/all"
+        f"?type=10&X-Plex-Container-Start=0&X-Plex-Container-Size={_PAGE_SIZE}"
+    )
+    data = _get_json(url, token)
     index: Dict[str, str] = {}
     for track in data.get("MediaContainer", {}).get("Metadata", []):
         rating_key = track.get("ratingKey")
@@ -81,16 +97,47 @@ def _build_file_index(server_url: str, token: str, section_key: str) -> Dict[str
 
 def _refresh_cache(server_url: str, token: str) -> None:
     section_key = _first_music_section(server_url, token)
+    machine_identifier = _machine_identifier(server_url, token)
+    file_index = _build_file_index(server_url, token, section_key)
     _cache["server_url"] = server_url
     _cache["built_at"] = time.time()
-    _cache["machine_identifier"] = _machine_identifier(server_url, token)
-    _cache["file_index"] = _build_file_index(server_url, token, section_key)
+    _cache["machine_identifier"] = machine_identifier
+    _cache["file_index"] = file_index
+    _log(f"indexed {len(file_index)} track(s) from section {section_key}")
+
+
+def invalidate_cache() -> None:
+    """Force the next lookup to rebuild the index instead of trusting the
+    cached one, even if it's within its TTL. Used after triggering a Plex
+    scan so a freshly-scanned file can show up sooner than the normal TTL."""
+    _cache["built_at"] = 0.0
+
+
+def trigger_scan(server_url: str, token: str) -> None:
+    """Kick off an on-demand Plex scan of the music section, so newly
+    downloaded files don't have to wait on Plex's own scan interval.
+    Fire-and-forget: errors are logged, not raised — this is a best-effort
+    nudge, not something the caller should block a page load on."""
+    server_url = (server_url or "").rstrip("/")
+    if not server_url or not token:
+        return
+    try:
+        section_key = _first_music_section(server_url, token)
+        req = urllib.request.Request(
+            f"{server_url}/library/sections/{section_key}/refresh",
+            headers={"X-Plex-Token": token},
+        )
+        with urllib.request.urlopen(req, timeout=10):
+            pass
+        _log(f"triggered library scan (section {section_key})")
+    except Exception as exc:
+        _log(f"failed to trigger library scan: {exc}")
 
 
 def get_play_link(server_url: str, token: str, filename: str) -> Optional[str]:
     """Deep link into Plex Web for `filename`'s matching library track, or
     None if Plex isn't configured, unreachable, or hasn't scanned this file
-    in yet."""
+    in yet. Logs the specific reason to stdout either way."""
     server_url = (server_url or "").rstrip("/")
     if not server_url or not token:
         return None
@@ -102,11 +149,13 @@ def get_play_link(server_url: str, token: str, filename: str) -> Optional[str]:
     if stale:
         try:
             _refresh_cache(server_url, token)
-        except PlexError:
+        except PlexError as exc:
+            _log(f"lookup for {filename!r} failed — couldn't refresh index: {exc}")
             return None
 
     rating_key = _cache["file_index"].get(filename)
     if not rating_key:
+        _log(f"{filename!r} not found in index ({len(_cache['file_index'])} track(s) indexed)")
         return None
 
     key = urllib.parse.quote(f"/library/metadata/{rating_key}", safe="")
