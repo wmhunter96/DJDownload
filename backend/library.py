@@ -10,7 +10,7 @@ import glob
 import os
 import re
 from difflib import SequenceMatcher
-from typing import List, Optional, TypedDict
+from typing import Dict, List, Optional, TypedDict
 
 from mutagen.id3 import ID3, ID3NoHeaderError
 
@@ -55,6 +55,19 @@ def list_artists(audio_dir: str) -> List[str]:
         if key and key not in seen:
             seen[key] = entry["artist"].strip()
     return sorted(seen.values(), key=str.lower)
+
+
+def count_by_artist(audio_dir: str) -> Dict[str, int]:
+    """Number of MP3s per artist in the library, keyed by canonical (first-seen) casing."""
+    canonical: Dict[str, str] = {}
+    counts: Dict[str, int] = {}
+    for entry in scan_library(audio_dir):
+        key = entry["artist"].strip().lower()
+        if not key:
+            continue
+        canonical.setdefault(key, entry["artist"].strip())
+        counts[key] = counts.get(key, 0) + 1
+    return {canonical[key]: count for key, count in counts.items()}
 
 
 def merge_dj_names(existing: List[str], new_names: List[str]) -> List[str]:

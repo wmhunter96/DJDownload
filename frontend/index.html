@@ -997,7 +997,7 @@
       const sel = document.getElementById('discoverDjSelect');
       const current = sel.value;
       sel.innerHTML = '<option value="">Select a DJ…</option>' +
-        (data.djs || []).map(dj => `<option value="${escAttr(dj)}">${esc(dj)}</option>`).join('');
+        (data.djs || []).map(dj => `<option value="${escAttr(dj.name)}">${esc(dj.name)} (${dj.count})</option>`).join('');
       sel.value = current;
     } catch {}
   }

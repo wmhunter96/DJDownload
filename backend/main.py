@@ -115,9 +115,12 @@ def post_settings(req: UpdateSettingsRequest):
         },
         "discovery": {
             "youtube_api_key": req.youtube_api_key,
-            # dismissed_ids is server-managed (see /api/discovery/dismiss),
-            # not part of the settings form — carry the existing value forward.
+            # dismissed_ids/known_djs/dj_counts are server-managed (see the
+            # /api/discovery/* routes below), not part of the settings form —
+            # carry the existing values forward.
             "dismissed_ids": current["discovery"]["dismissed_ids"],
+            "known_djs": current["discovery"]["known_djs"],
+            "dj_counts": current["discovery"]["dj_counts"],
         },
     }
     save_settings(settings)
@@ -172,23 +175,38 @@ def get_job(job_id: str):
 @app.get("/api/discovery/djs")
 def list_discovery_djs():
     settings = load_settings()
-    return {"djs": settings["discovery"]["known_djs"]}
+    known = settings["discovery"]["known_djs"]
+    counts = settings["discovery"]["dj_counts"]
+    return {"djs": [{"name": name, "count": counts.get(name, 0)} for name in known]}
 
 
 @app.post("/api/discovery/scan-library")
 def scan_discovery_library():
-    """Backfill the DJ dropdown from the audio library's ID3 tags.
+    """Backfill the DJ dropdown (and set counts) from the audio library's ID3 tags.
 
     known_djs is normally built up as jobs complete (works for video-only
     downloads too, which carry no ID3 tags to scan) — this covers DJs already
     in the library from before that tracking existed, or added outside the app.
     """
     settings = load_settings()
-    scanned = library.list_artists(settings["audio"]["output_dir"])
-    before = set(name.lower() for name in settings["discovery"]["known_djs"])
-    settings["discovery"]["known_djs"] = library.merge_dj_names(settings["discovery"]["known_djs"], scanned)
+    scanned_counts = library.count_by_artist(settings["audio"]["output_dir"])
+
+    known = settings["discovery"]["known_djs"]
+    dj_counts = settings["discovery"]["dj_counts"]
+    before = set(name.lower() for name in known)
+
+    settings["discovery"]["known_djs"] = library.merge_dj_names(known, list(scanned_counts.keys()))
+    for scanned_name, count in scanned_counts.items():
+        # Only trust the file count for names dj_counts doesn't already track
+        # (new backfills, or older known_djs entries from before dj_counts
+        # existed) — don't clobber a count already being kept in sync by
+        # _remember_dj as jobs complete.
+        canonical = next(n for n in settings["discovery"]["known_djs"] if n.lower() == scanned_name.lower())
+        if canonical not in dj_counts:
+            dj_counts[canonical] = count
+
     save_settings(settings)
-    added = [name for name in scanned if name.lower() not in before]
+    added = [name for name in scanned_counts if name.lower() not in before]
     return {"djs": settings["discovery"]["known_djs"], "added": added}
 
 
@@ -272,7 +290,7 @@ async def _run_with_forbidden_retry(func, *args, log, **kwargs):
 
 
 def _remember_dj(artist: str) -> None:
-    """Record `artist` in discovery.known_djs so it shows up in the Discover dropdown.
+    """Record `artist` in discovery.known_djs and bump its set count.
 
     Called on every successful job — covers video-only downloads (no ID3 tags to
     scan) as well as audio. Pre-existing library entries are backfilled via the
@@ -282,7 +300,14 @@ def _remember_dj(artist: str) -> None:
     if not artist:
         return
     settings = load_settings()
-    settings["discovery"]["known_djs"] = library.merge_dj_names(settings["discovery"]["known_djs"], [artist])
+    known = settings["discovery"]["known_djs"]
+    canonical = next((n for n in known if n.lower() == artist.lower()), None)
+    if canonical is None:
+        known = library.merge_dj_names(known, [artist])
+        settings["discovery"]["known_djs"] = known
+        canonical = artist
+    dj_counts = settings["discovery"]["dj_counts"]
+    dj_counts[canonical] = dj_counts.get(canonical, 0) + 1
     save_settings(settings)
 
 
