@@ -359,9 +359,9 @@ def post_analytics_plex_refresh():
     if Plex isn't configured/reachable (check server logs for [plex] lines)."""
     settings = load_settings()
     plex_settings = settings["plex"]
-    plex.trigger_scan(plex_settings["server_url"], plex_settings["token"])
+    reached = plex.trigger_scan(plex_settings["server_url"], plex_settings["token"])
     plex.invalidate_cache()
-    return {"ok": True}
+    return {"ok": True, "plex_reached": reached}
 
 
 # ---------------------------------------------------------------------------

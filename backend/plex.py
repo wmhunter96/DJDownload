@@ -113,14 +113,16 @@ def invalidate_cache() -> None:
     _cache["built_at"] = 0.0
 
 
-def trigger_scan(server_url: str, token: str) -> None:
+def trigger_scan(server_url: str, token: str) -> bool:
     """Kick off an on-demand Plex scan of the music section, so newly
     downloaded files don't have to wait on Plex's own scan interval.
-    Fire-and-forget: errors are logged, not raised — this is a best-effort
-    nudge, not something the caller should block a page load on."""
+    Errors are logged, not raised, but the return value tells the caller
+    whether Plex was actually reached — surfaced in the UI's sync indicator
+    so a connectivity/auth problem doesn't just look identical to "still
+    scanning"."""
     server_url = (server_url or "").rstrip("/")
     if not server_url or not token:
-        return
+        return False
     try:
         section_key = _first_music_section(server_url, token)
         req = urllib.request.Request(
@@ -130,8 +132,10 @@ def trigger_scan(server_url: str, token: str) -> None:
         with urllib.request.urlopen(req, timeout=10):
             pass
         _log(f"triggered library scan (section {section_key})")
+        return True
     except Exception as exc:
         _log(f"failed to trigger library scan: {exc}")
+        return False
 
 
 def get_play_link(server_url: str, token: str, filename: str) -> Optional[str]:

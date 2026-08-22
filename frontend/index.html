@@ -261,6 +261,22 @@
     overflow: hidden;
     min-height: 2.6em;
   }
+  .plex-sync-status {
+    display: none;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    color: var(--muted);
+  }
+  .plex-sync-spinner {
+    width: 11px;
+    height: 11px;
+    border: 2px solid var(--border);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin 0.7s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
   .file-card-play {
     margin-top: 2px;
     padding: 6px 0;
@@ -824,6 +840,10 @@
         <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;">
           <div class="section-label" style="margin-bottom:0;border-bottom:none;padding-bottom:0;">Leaderboard — Sets per DJ</div>
           <div style="display:flex;align-items:center;gap:10px;">
+            <span class="plex-sync-status" id="plexSyncStatus">
+              <span class="plex-sync-spinner" id="plexSyncSpinner"></span>
+              <span id="plexSyncText">Syncing with Plex…</span>
+            </span>
             <div class="sort-buttons">
               <button type="button" class="sort-btn" id="analyticsSortByNameBtn" onclick="setAnalyticsSort('artist')">Aa<span class="sort-arrow" id="analyticsSortArrowName"></span></button>
               <button type="button" class="sort-btn" id="analyticsSortByQtyBtn" onclick="setAnalyticsSort('count')">123<span class="sort-arrow" id="analyticsSortArrowQty"></span></button>
@@ -968,12 +988,33 @@
     } catch { plexConfigured = false; }
   }
 
-  // Fire-and-forget: nudge Plex to rescan its music library whenever the
-  // Analytics tab is opened, so newly-downloaded sets show up as playable
-  // without the user having to press anything Plex-side.
+  // Nudge Plex to rescan its music library whenever the Analytics tab is
+  // opened, so newly-downloaded sets show up as playable without the user
+  // having to press anything Plex-side. Shows a spinner while in flight —
+  // the result also doubles as a connectivity check: "couldn't reach Plex"
+  // means the settings/network are the problem, not any one file's match.
   function refreshPlexLibrary() {
     if (!plexConfigured) return;
-    fetch(`${API}/api/analytics/plex-refresh`, { method: 'POST' }).catch(() => {});
+    const status = document.getElementById('plexSyncStatus');
+    const spinner = document.getElementById('plexSyncSpinner');
+    const text = document.getElementById('plexSyncText');
+    status.style.display = 'inline-flex';
+    spinner.style.display = '';
+    text.textContent = 'Syncing with Plex…';
+
+    fetch(`${API}/api/analytics/plex-refresh`, { method: 'POST' })
+      .then(res => res.json())
+      .then(data => {
+        spinner.style.display = 'none';
+        text.textContent = data.plex_reached ? '✓ Synced with Plex' : '⚠ Couldn’t reach Plex';
+      })
+      .catch(() => {
+        spinner.style.display = 'none';
+        text.textContent = '⚠ Couldn’t reach Plex';
+      })
+      .finally(() => {
+        setTimeout(() => { status.style.display = 'none'; }, 2000);
+      });
   }
 
   // ── Navigation ──────────────────────────────
