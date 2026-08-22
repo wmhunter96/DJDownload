@@ -293,6 +293,14 @@ def serve_ui():
     return JSONResponse({"error": "Frontend not found"}, status_code=404)
 
 
+@app.get("/favicon.png")
+def serve_favicon():
+    favicon = os.path.join(FRONTEND_DIR, "favicon.png")
+    if os.path.exists(favicon):
+        return FileResponse(favicon)
+    return JSONResponse({"error": "Favicon not found"}, status_code=404)
+
+
 # ---------------------------------------------------------------------------
 # Background job runner
 # ---------------------------------------------------------------------------
