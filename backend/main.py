@@ -17,6 +17,7 @@ Endpoints:
   GET  /api/analytics/thumbnail     → embedded cover art for one file
   GET  /api/analytics/plex-link     → Plex Web deep link for one file ("Play in Plex")
   POST /api/analytics/plex-refresh  → nudge Plex to (re)scan its music library
+  POST /api/settings/plex-test      → step-by-step Plex connection/match diagnostics
   GET  /api/status    → health check
 """
 
@@ -94,6 +95,11 @@ class DiscoveryDismissRequest(BaseModel):
     video_id: str
 
 
+class PlexTestRequest(BaseModel):
+    server_url: str
+    token: str
+
+
 # ---------------------------------------------------------------------------
 # Routes — settings
 # ---------------------------------------------------------------------------
@@ -131,6 +137,18 @@ def post_settings(req: UpdateSettingsRequest):
     }
     save_settings(settings)
     return {"ok": True}
+
+
+@app.post("/api/settings/plex-test")
+def post_settings_plex_test(req: PlexTestRequest):
+    """Step-by-step Plex connection diagnostics for the Settings page's
+    "Test Connection" button — tests the URL/token from the (possibly
+    unsaved) form fields directly, and cross-checks the current audio
+    library against Plex's index so a match failure is caught even when
+    connectivity and auth are both fine."""
+    settings = load_settings()
+    local_filenames = [e["filename"] for e in library.scan_library(settings["audio"]["output_dir"])]
+    return plex.test_connection(req.server_url, req.token, local_filenames)
 
 
 # ---------------------------------------------------------------------------

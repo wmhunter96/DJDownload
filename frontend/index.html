@@ -277,6 +277,21 @@
     animation: spin 0.7s linear infinite;
   }
   @keyframes spin { to { transform: rotate(360deg); } }
+  .plex-test-step {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    padding: 7px 10px;
+    border-radius: 4px;
+    background: rgba(255,255,255,0.02);
+    border: 1px solid var(--border);
+    font-size: 12px;
+  }
+  .plex-test-step .icon { flex-shrink: 0; font-weight: 700; line-height: 1.5; }
+  .plex-test-step.ok .icon { color: var(--success); }
+  .plex-test-step.fail .icon { color: var(--danger); }
+  .plex-test-step .label { font-weight: 600; color: var(--text); }
+  .plex-test-step .detail { color: var(--muted); margin-top: 1px; }
   .file-card-play {
     margin-top: 2px;
     padding: 6px 0;
@@ -956,6 +971,10 @@
             directory. Find your token at
             support.plex.tv → "Finding an authentication token".
           </div>
+          <div style="margin-top:10px;">
+            <button type="button" class="btn-secondary" style="width:auto;" id="plexTestBtn" onclick="testPlexConnection()">Test Connection</button>
+          </div>
+          <div id="plexTestResults" style="display:none;flex-direction:column;gap:6px;margin-top:10px;"></div>
         </div>
       </div>
 
@@ -1298,6 +1317,51 @@
     const ok = document.getElementById('saveOk');
     ok.style.display = '';
     setTimeout(() => ok.style.display = 'none', 2000);
+  }
+
+  function plexTestStepHTML(step) {
+    return `
+      <div class="plex-test-step ${step.ok ? 'ok' : 'fail'}">
+        <span class="icon">${step.ok ? '✓' : '✗'}</span>
+        <div>
+          <div class="label">${esc(step.label)}</div>
+          <div class="detail">${esc(step.detail)}</div>
+        </div>
+      </div>
+    `;
+  }
+
+  async function testPlexConnection() {
+    const btn = document.getElementById('plexTestBtn');
+    const results = document.getElementById('plexTestResults');
+    const serverUrl = document.getElementById('plexServerUrl').value.trim();
+    const token = document.getElementById('plexToken').value.trim();
+
+    results.style.display = 'flex';
+    if (!serverUrl || !token) {
+      results.innerHTML = plexTestStepHTML({ ok: false, label: 'Configuration', detail: 'Enter both a server URL and a token first.' });
+      return;
+    }
+
+    const original = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = 'Testing…';
+    results.innerHTML = `<div class="plex-test-step"><span class="icon">⏳</span><div><div class="label">Testing…</div></div></div>`;
+
+    try {
+      const res = await fetch(`${API}/api/settings/plex-test`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ server_url: serverUrl, token }),
+      });
+      const data = await res.json();
+      results.innerHTML = (data.steps || []).map(plexTestStepHTML).join('');
+    } catch (e) {
+      results.innerHTML = plexTestStepHTML({ ok: false, label: 'Request failed', detail: String(e) });
+    } finally {
+      btn.disabled = false;
+      btn.textContent = original;
+    }
   }
 
   // ── Discover (missed-set finder) ──────────────

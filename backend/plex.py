@@ -22,7 +22,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
-from typing import Dict, Optional
+from typing import Dict, List, Optional
 
 _CACHE_TTL_S = 60  # rebuild the filename->ratingKey index at most once a minute
 _PAGE_SIZE = 100_000  # large enough to always get the whole library in one request
@@ -136,6 +136,79 @@ def trigger_scan(server_url: str, token: str) -> bool:
     except Exception as exc:
         _log(f"failed to trigger library scan: {exc}")
         return False
+
+
+def test_connection(server_url: str, token: str, local_filenames: Optional[List[str]] = None) -> dict:
+    """Runs the same steps `get_play_link` relies on, one at a time, and
+    reports exactly which stage failed (or succeeded) — backs the Settings
+    page's "Test Connection" button. Independent of the shared cache, so
+    testing never leaves stale state behind for real lookups.
+
+    If `local_filenames` is given (the audio library's actual basenames),
+    also cross-checks them against Plex's index — this catches a pure
+    matching failure even when connectivity and auth are both fine.
+    """
+    steps = []
+    server_url = (server_url or "").rstrip("/")
+
+    if not server_url or not token:
+        return {
+            "ok": False,
+            "steps": [{"label": "Configuration", "ok": False, "detail": "Enter both a server URL and a token."}],
+        }
+
+    try:
+        data = _get_json(f"{server_url}/identity", token)
+        container = data.get("MediaContainer", {})
+        machine_id = container.get("machineIdentifier")
+        version = container.get("version", "unknown version")
+        if not machine_id:
+            steps.append({"label": "Connect to Plex", "ok": False, "detail": "Connected, but got no machineIdentifier back — double-check the token."})
+            return {"ok": False, "steps": steps}
+        steps.append({"label": "Connect to Plex", "ok": True, "detail": f"Reached Plex Media Server {version}."})
+    except PlexError as exc:
+        steps.append({"label": "Connect to Plex", "ok": False, "detail": str(exc)})
+        return {"ok": False, "steps": steps}
+
+    try:
+        data = _get_json(f"{server_url}/library/sections", token)
+        sections = data.get("MediaContainer", {}).get("Directory", [])
+        music = next((s for s in sections if s.get("type") == "artist"), None)
+        if not music:
+            seen = ", ".join(f'"{s.get("title")}" ({s.get("type")})' for s in sections) or "none"
+            steps.append({"label": "Find music library", "ok": False, "detail": f"No music library found. Libraries seen: {seen}."})
+            return {"ok": False, "steps": steps}
+        steps.append({"label": "Find music library", "ok": True, "detail": f'Using "{music.get("title")}" (section {music["key"]}).'})
+        section_key = music["key"]
+    except PlexError as exc:
+        steps.append({"label": "Find music library", "ok": False, "detail": str(exc)})
+        return {"ok": False, "steps": steps}
+
+    try:
+        file_index = _build_file_index(server_url, token, section_key)
+        steps.append({"label": "Index tracks", "ok": True, "detail": f"Indexed {len(file_index)} track(s)."})
+    except PlexError as exc:
+        steps.append({"label": "Index tracks", "ok": False, "detail": str(exc)})
+        return {"ok": False, "steps": steps}
+
+    if local_filenames:
+        matched = sum(1 for f in local_filenames if f in file_index)
+        total = len(local_filenames)
+        if total == 0:
+            steps.append({"label": "Match local library", "ok": True, "detail": "No local files to check against yet."})
+        elif matched == total:
+            steps.append({"label": "Match local library", "ok": True, "detail": f"All {total} local file(s) matched in Plex."})
+        elif matched == 0:
+            sample_local = local_filenames[0]
+            sample_plex = next(iter(file_index), None)
+            detail = f'0 of {total} local file(s) matched. e.g. local file "{sample_local}"'
+            detail += f' vs. a Plex file like "{sample_plex}"' if sample_plex else " — Plex's index is empty"
+            detail += " — check Plex is scanning the exact folder DJDownload writes to."
+            steps.append({"label": "Match local library", "ok": False, "detail": detail})
+        else:
+            steps.append({"label": "Match local library", "ok": True, "detail": f"{matched} of {total} local file(s) matched — the rest may still need a Plex scan."})
+
+    return {"ok": all(s["ok"] for s in steps), "steps": steps}
 
 
 def get_play_link(server_url: str, token: str, filename: str) -> Optional[str]:
