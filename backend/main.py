@@ -15,6 +15,7 @@ Endpoints:
   GET  /api/analytics               → per-DJ set-count leaderboard (Analytics tab)
   GET  /api/analytics/files         → files for one DJ, for the drill-down grid
   GET  /api/analytics/thumbnail     → embedded cover art for one file
+  GET  /api/analytics/plex-link     → Plex Web deep link for one file ("Play in Plex")
   GET  /api/status    → health check
 """
 
@@ -38,6 +39,7 @@ from backend.downloader import (
 )
 from backend.tagging import tag_mp3
 from backend import library
+from backend import plex
 from backend.discovery import search_youtube, YouTubeApiError
 
 import os
@@ -79,6 +81,8 @@ class UpdateSettingsRequest(BaseModel):
     video_enabled: bool
     video_output_dir: str
     youtube_api_key: str = ""
+    plex_server_url: str = ""
+    plex_token: str = ""
 
 
 class DiscoverySearchRequest(BaseModel):
@@ -118,6 +122,10 @@ def post_settings(req: UpdateSettingsRequest):
             "dismissed_ids": current["discovery"]["dismissed_ids"],
             "known_djs": current["discovery"]["known_djs"],
             "dj_counts": current["discovery"]["dj_counts"],
+        },
+        "plex": {
+            "server_url": req.plex_server_url,
+            "token": req.plex_token,
         },
     }
     save_settings(settings)
@@ -325,6 +333,20 @@ def get_analytics_thumbnail(filename: str):
         raise HTTPException(status_code=404, detail="Thumbnail not found")
     data, mime = result
     return Response(content=data, media_type=mime, headers={"Cache-Control": "private, max-age=86400"})
+
+
+@app.get("/api/analytics/plex-link")
+def get_analytics_plex_link(filename: str):
+    """Plex Web deep link for one library file, matched by filename against
+    Plex's own library index — backs the "Play in Plex" button on the
+    Analytics tab's file grid. 404s if Plex isn't configured, unreachable,
+    or hasn't scanned this file in yet."""
+    settings = load_settings()
+    plex_settings = settings["plex"]
+    url = plex.get_play_link(plex_settings["server_url"], plex_settings["token"], filename)
+    if not url:
+        raise HTTPException(status_code=404, detail="Not found in Plex library")
+    return {"url": url}
 
 
 # ---------------------------------------------------------------------------

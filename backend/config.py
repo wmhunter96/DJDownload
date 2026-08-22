@@ -46,4 +46,8 @@ def _defaults() -> dict:
                                     # complete, or backfilled via "Scan Audio Library"
             "dj_counts": {},       # known_djs name -> set count, shown as "Name (Qty)"
         },
+        "plex": {
+            "server_url": "",   # e.g. http://192.168.1.50:32400 — Plex server scanning the same audio output dir
+            "token": "",        # X-Plex-Token, used to look up library items for "Play in Plex"
+        },
     }

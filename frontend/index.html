@@ -261,6 +261,20 @@
     overflow: hidden;
     min-height: 2.6em;
   }
+  .file-card-play {
+    margin-top: 2px;
+    padding: 6px 0;
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    color: var(--text);
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: border-color 0.15s, color 0.15s;
+  }
+  .file-card-play:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+  .file-card-play:disabled { cursor: default; opacity: 0.6; }
   .file-card-meta {
     display: flex;
     justify-content: space-between;
@@ -905,6 +919,24 @@
             (~100 searches; "All DJs" uses one search per DJ).
           </div>
         </div>
+
+        <div class="settings-card" style="grid-column:1/-1;">
+          <h3>Plex</h3>
+          <div class="field">
+            <label>Server URL</label>
+            <input type="text" id="plexServerUrl" placeholder="http://192.168.1.50:32400" />
+          </div>
+          <div class="field">
+            <label>Plex Token</label>
+            <input type="text" id="plexToken" placeholder="X-Plex-Token" />
+          </div>
+          <div class="toggle-sub">
+            Enables a "Play in Plex" button on the Analytics tab's file cards, deep-linking
+            into Plex Web. Requires a Plex library already scanning the same audio output
+            directory. Find your token at
+            support.plex.tv → "Finding an authentication token".
+          </div>
+        </div>
       </div>
 
       <div class="save-bar">
@@ -926,6 +958,15 @@
   const API = '';
   let selectedJobId = null;
   let pollTimer = null;
+  let plexConfigured = false;
+
+  async function checkPlexConfigured() {
+    try {
+      const res = await fetch(`${API}/api/settings`);
+      const s = await res.json();
+      plexConfigured = !!(s.plex?.server_url && s.plex?.token);
+    } catch { plexConfigured = false; }
+  }
 
   // ── Navigation ──────────────────────────────
   document.querySelectorAll('nav button').forEach(btn => {
@@ -1184,6 +1225,8 @@
       document.getElementById('videoEnabled').checked = s.video?.enabled ?? true;
       document.getElementById('videoDir').value = s.video?.output_dir ?? '';
       document.getElementById('youtubeApiKey').value = s.discovery?.youtube_api_key ?? '';
+      document.getElementById('plexServerUrl').value = s.plex?.server_url ?? '';
+      document.getElementById('plexToken').value = s.plex?.token ?? '';
     } catch {}
   }
 
@@ -1194,12 +1237,15 @@
       video_enabled: document.getElementById('videoEnabled').checked,
       video_output_dir: document.getElementById('videoDir').value,
       youtube_api_key: document.getElementById('youtubeApiKey').value,
+      plex_server_url: document.getElementById('plexServerUrl').value,
+      plex_token: document.getElementById('plexToken').value,
     };
     await fetch(`${API}/api/settings`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     });
+    plexConfigured = !!(body.plex_server_url && body.plex_token);
     const ok = document.getElementById('saveOk');
     ok.style.display = '';
     setTimeout(() => ok.style.display = 'none', 2000);
@@ -1638,6 +1684,9 @@
     const thumb = thumbSrc
       ? `<img class="file-card-thumb" src="${escAttr(thumbSrc)}" alt="" loading="lazy" onerror="this.outerHTML='<div class=&quot;file-card-thumb-empty&quot;>♪</div>'">`
       : `<div class="file-card-thumb-empty">♪</div>`;
+    const playBtn = plexConfigured
+      ? `<button type="button" class="file-card-play" data-filename="${escAttr(file.filename)}">▶ Play in Plex</button>`
+      : '';
     return `
       <div class="file-card">
         ${thumb}
@@ -1650,6 +1699,7 @@
           <div class="file-card-meta">
             <span>${formatDate(file.added)}</span>
           </div>
+          ${playBtn}
         </div>
       </div>
     `;
@@ -1664,8 +1714,32 @@
     grid.innerHTML = files.map(fileCardHTML).join('');
   }
 
+  document.getElementById('analyticsFilesGrid').addEventListener('click', async (e) => {
+    const btn = e.target.closest('.file-card-play');
+    if (!btn) return;
+    e.stopPropagation();
+    if (btn.disabled) return;
+    const filename = btn.dataset.filename;
+    const original = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = '…';
+    try {
+      const res = await fetch(`${API}/api/analytics/plex-link?filename=${encodeURIComponent(filename)}`);
+      if (!res.ok) throw new Error('not found');
+      const data = await res.json();
+      window.open(data.url, '_blank');
+      btn.textContent = original;
+    } catch {
+      btn.textContent = 'Not in Plex yet';
+      setTimeout(() => { btn.textContent = original; }, 2000);
+    } finally {
+      btn.disabled = false;
+    }
+  });
+
   // ── Init ─────────────────────────────────────
   renderJobList();
+  checkPlexConfigured();
 </script>
 </body>
 </html>
