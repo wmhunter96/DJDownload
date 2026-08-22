@@ -67,7 +67,7 @@ jobs: Dict[str, dict] = {}
 
 class SubmitJobRequest(BaseModel):
     url: str
-    artist_override: Optional[str] = None   # overrides settings artist mode for this job
+    artist_override: Optional[str] = None   # if blank, the YouTube channel name is used
 
 
 class UpdateSettingsRequest(BaseModel):
@@ -75,8 +75,6 @@ class UpdateSettingsRequest(BaseModel):
     audio_output_dir: str
     video_enabled: bool
     video_output_dir: str
-    artist_mode: str          # "channel" | "custom"
-    artist_custom_name: str
     youtube_api_key: str = ""
 
 
@@ -108,10 +106,6 @@ def post_settings(req: UpdateSettingsRequest):
         "video": {
             "enabled": req.video_enabled,
             "output_dir": req.video_output_dir,
-        },
-        "artist": {
-            "mode": req.artist_mode,
-            "custom_name": req.artist_custom_name,
         },
         "discovery": {
             "youtube_api_key": req.youtube_api_key,
@@ -163,7 +157,7 @@ async def submit_job(req: SubmitJobRequest, background_tasks: BackgroundTasks):
         "title": None,          # YouTube video title (from yt-dlp metadata)
         "uploader": None,       # YouTube channel name (from yt-dlp metadata)
         "thumbnail": None,      # YouTube video thumbnail URL (from yt-dlp metadata)
-        "artist": None,         # resolved artist: override, or settings custom name, or uploader
+        "artist": None,         # resolved artist: override, or uploader (channel name)
         "stage": None,          # human-readable current step, e.g. "Downloading audio"
         "progress": None,       # 0-100 percent for the current stage, or None if indeterminate
         "operations": _initial_operations(settings),  # one entry per progress bar (video/audio/tagging)
@@ -386,14 +380,10 @@ async def _run_job(job_id: str):
         log(f"Title:    {title}")
         log(f"Uploader: {uploader}")
 
-        # 2. Resolve artist
+        # 2. Resolve artist — always prefer the per-job override; fall back to
+        # the YouTube channel name when it's blank.
         override = job.get("artist_override", "").strip() if job.get("artist_override") else ""
-        if override:
-            artist = override
-        elif settings["artist"]["mode"] == "custom" and settings["artist"]["custom_name"].strip():
-            artist = settings["artist"]["custom_name"].strip()
-        else:
-            artist = uploader
+        artist = override or uploader
         job["artist"] = artist
         log(f"Artist:   {artist}")
 

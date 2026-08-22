@@ -41,9 +41,8 @@ Requires a **YouTube Data API v3 key** (Google Cloud Console → enable "YouTube
 - Enable/disable **video downloads**
 - **Audio output directory**
 - **Video output directory**
-- **Artist mode**
-  - Use YouTube channel name
-  - Use custom artist name
+
+Artist is set per job at submission time via the **Artist Override** field — leave it blank to use the YouTube channel name.
 
 ---
 

@@ -577,7 +577,7 @@
 
         <div class="field">
           <label>Artist Override <span style="color:#444;font-weight:400;text-transform:none;">(optional)</span></label>
-          <input type="text" id="artistInput" placeholder="Leave blank to use settings" />
+          <input type="text" id="artistInput" placeholder="Leave blank to use the YouTube channel name" />
         </div>
 
         <button class="btn-primary" id="submitBtn" onclick="submitJob()">
@@ -712,21 +712,6 @@
           <div class="field">
             <label>Output Directory</label>
             <input type="text" id="videoDir" placeholder="/downloads/video" />
-          </div>
-        </div>
-
-        <div class="settings-card" style="grid-column:1/-1;">
-          <h3>Artist Tagging</h3>
-          <div class="field">
-            <label>Mode</label>
-            <select id="artistMode">
-              <option value="channel">Use YouTube Channel Name</option>
-              <option value="custom">Use Custom Artist Name</option>
-            </select>
-          </div>
-          <div class="field" id="customArtistField">
-            <label>Custom Artist Name</label>
-            <input type="text" id="customArtist" placeholder="e.g. Boiler Room" />
           </div>
         </div>
 
@@ -1019,10 +1004,7 @@
       document.getElementById('audioDir').value = s.audio?.output_dir ?? '';
       document.getElementById('videoEnabled').checked = s.video?.enabled ?? true;
       document.getElementById('videoDir').value = s.video?.output_dir ?? '';
-      document.getElementById('artistMode').value = s.artist?.mode ?? 'channel';
-      document.getElementById('customArtist').value = s.artist?.custom_name ?? '';
       document.getElementById('youtubeApiKey').value = s.discovery?.youtube_api_key ?? '';
-      toggleCustomArtist();
     } catch {}
   }
 
@@ -1032,8 +1014,6 @@
       audio_output_dir: document.getElementById('audioDir').value,
       video_enabled: document.getElementById('videoEnabled').checked,
       video_output_dir: document.getElementById('videoDir').value,
-      artist_mode: document.getElementById('artistMode').value,
-      artist_custom_name: document.getElementById('customArtist').value,
       youtube_api_key: document.getElementById('youtubeApiKey').value,
     };
     await fetch(`${API}/api/settings`, {
@@ -1045,12 +1025,6 @@
     ok.style.display = '';
     setTimeout(() => ok.style.display = 'none', 2000);
   }
-
-  function toggleCustomArtist() {
-    const show = document.getElementById('artistMode').value === 'custom';
-    document.getElementById('customArtistField').style.display = show ? '' : 'none';
-  }
-  document.getElementById('artistMode').addEventListener('change', toggleCustomArtist);
 
   // ── Discover (missed-set finder) ──────────────
   function formatDuration(totalSeconds) {

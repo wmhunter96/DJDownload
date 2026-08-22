@@ -39,10 +39,6 @@ def _defaults() -> dict:
             "enabled": True,
             "output_dir": "/downloads/video",
         },
-        "artist": {
-            "mode": "channel",   # "channel" | "custom"
-            "custom_name": "",
-        },
         "discovery": {
             "youtube_api_key": "",
             "dismissed_ids": [],   # video IDs the user has dismissed from the review queue
