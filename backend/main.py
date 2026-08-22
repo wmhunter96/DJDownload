@@ -122,6 +122,8 @@ async def submit_job(req: SubmitJobRequest, background_tasks: BackgroundTasks):
         "uploader": None,       # YouTube channel name (from yt-dlp metadata)
         "thumbnail": None,      # YouTube video thumbnail URL (from yt-dlp metadata)
         "artist": None,         # resolved artist: override, or settings custom name, or uploader
+        "stage": None,          # human-readable current step, e.g. "Downloading audio"
+        "progress": None,       # 0-100 percent for the current stage, or None if indeterminate
     }
     jobs[job_id] = job
     background_tasks.add_task(_run_job, job_id)
@@ -183,10 +185,14 @@ async def _run_job(job_id: str):
         ts = datetime.utcnow().strftime("%H:%M:%S")
         job["logs"].append(f"[{ts}] {msg}")
 
+    def progress_cb(percent: float):
+        job["progress"] = percent
+
     settings = load_settings()
 
     try:
         # 1. Fetch metadata
+        job["stage"] = "Fetching metadata"
         log(f"Fetching metadata for: {job['url']}")
         meta = await _run_with_forbidden_retry(fetch_metadata, job["url"], log=log)
         title = meta["title"]
@@ -213,12 +219,15 @@ async def _run_job(job_id: str):
 
         # 3. Download video
         if settings["video"]["enabled"]:
+            job["stage"] = "Downloading video"
+            job["progress"] = 0
             log("Starting video download...")
             video_path = await _run_with_forbidden_retry(
                 download_video,
                 job["url"],
                 settings["video"]["output_dir"],
                 log,
+                progress_cb,
                 log=log,
             )
             if video_path:
@@ -228,12 +237,15 @@ async def _run_job(job_id: str):
 
         # 4. Download audio
         if settings["audio"]["enabled"]:
+            job["stage"] = "Downloading audio"
+            job["progress"] = 0
             log("Starting audio download...")
             audio_path = await _run_with_forbidden_retry(
                 download_audio,
                 job["url"],
                 settings["audio"]["output_dir"],
                 log,
+                progress_cb,
                 log=log,
             )
             if audio_path:
@@ -242,6 +254,8 @@ async def _run_job(job_id: str):
                 raise RuntimeError("Audio download failed — MP3 path not found.")
 
             # 5. Tag MP3
+            job["stage"] = "Tagging"
+            job["progress"] = None
             log("Tagging MP3...")
             final_path = await asyncio.to_thread(
                 tag_mp3,
@@ -264,4 +278,6 @@ async def _run_job(job_id: str):
         log(f"❌ Error: {exc}")
 
     finally:
+        job["stage"] = None
+        job["progress"] = None
         job["finished_at"] = datetime.utcnow().isoformat()

@@ -13,6 +13,7 @@ import sys
 import json
 import os
 import glob
+import re
 import time
 from pathlib import Path
 from typing import Optional
@@ -75,7 +76,7 @@ def fetch_metadata(url: str) -> dict:
 # Video download
 # ---------------------------------------------------------------------------
 
-def download_video(url: str, output_dir: str, log_callback=None) -> Optional[str]:
+def download_video(url: str, output_dir: str, log_callback=None, progress_callback=None) -> Optional[str]:
     """Download best-quality video. Returns output path or None on failure."""
     Path(output_dir).mkdir(parents=True, exist_ok=True)
     output_template = os.path.join(output_dir, "%(title)s.%(ext)s")
@@ -89,14 +90,17 @@ def download_video(url: str, output_dir: str, log_callback=None) -> Optional[str
         url,
     ]
 
-    return _run_yt_dlp(cmd, output_dir, ext_filter="*.webm,*.mp4,*.mkv", log_callback=log_callback)
+    return _run_yt_dlp(
+        cmd, output_dir, ext_filter="*.webm,*.mp4,*.mkv",
+        log_callback=log_callback, progress_callback=progress_callback,
+    )
 
 
 # ---------------------------------------------------------------------------
 # Audio download
 # ---------------------------------------------------------------------------
 
-def download_audio(url: str, output_dir: str, log_callback=None) -> Optional[str]:
+def download_audio(url: str, output_dir: str, log_callback=None, progress_callback=None) -> Optional[str]:
     """Download best-quality audio as MP3 with embedded thumbnail.
     Returns the final MP3 path."""
     Path(output_dir).mkdir(parents=True, exist_ok=True)
@@ -116,14 +120,22 @@ def download_audio(url: str, output_dir: str, log_callback=None) -> Optional[str
         url,
     ]
 
-    return _run_yt_dlp(cmd, output_dir, ext_filter="*.mp3", log_callback=log_callback)
+    return _run_yt_dlp(
+        cmd, output_dir, ext_filter="*.mp3",
+        log_callback=log_callback, progress_callback=progress_callback,
+    )
 
 
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
 
-def _run_yt_dlp(cmd: list, output_dir: str, ext_filter: str, log_callback=None) -> Optional[str]:
+# Matches yt-dlp's progress line, e.g.:
+#   [download]  42.7% of   10.00MiB at    1.23MiB/s ETA 00:05
+_PROGRESS_RE = re.compile(r"\[download\]\s+(\d{1,3}(?:\.\d+)?)%")
+
+
+def _run_yt_dlp(cmd: list, output_dir: str, ext_filter: str, log_callback=None, progress_callback=None) -> Optional[str]:
     start_time = time.time()
 
     process = subprocess.Popen(
@@ -144,6 +156,14 @@ def _run_yt_dlp(cmd: list, output_dir: str, ext_filter: str, log_callback=None) 
             log_callback(line)
         else:
             print(line, flush=True)
+
+        if progress_callback:
+            match = _PROGRESS_RE.search(line)
+            if match:
+                try:
+                    progress_callback(float(match.group(1)))
+                except ValueError:
+                    pass
 
         # yt-dlp --exec "after_move:echo {}" prints the final path
         stripped = line.strip()

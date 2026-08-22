@@ -292,6 +292,39 @@
 
   @keyframes pulse { 0%,100% { opacity:1; } 50% { opacity:0.5; } }
 
+  /* ── Progress bar ── */
+  .progress-wrap { margin-top: 6px; }
+  .progress-track {
+    height: 6px;
+    background: #1a1a26;
+    border-radius: 3px;
+    overflow: hidden;
+  }
+  .progress-track-sm { height: 4px; }
+  .progress-fill {
+    height: 100%;
+    width: 0%;
+    background: var(--accent2);
+    border-radius: 3px;
+    transition: width 0.3s ease;
+  }
+  .progress-fill.indeterminate {
+    width: 35% !important;
+    animation: progress-slide 1.1s infinite ease-in-out;
+  }
+  @keyframes progress-slide {
+    0%   { margin-left: -35%; }
+    100% { margin-left: 100%; }
+  }
+  .progress-label {
+    display: flex;
+    justify-content: space-between;
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--muted);
+    margin-top: 4px;
+  }
+
   /* ── Log panel ── */
   .log-box {
     background: #070709;
@@ -530,6 +563,13 @@
             <span id="dCreated">—</span>
             <span id="dFinished" style="display:none">→ <span id="dFinishedVal">—</span></span>
           </div>
+          <div class="progress-wrap" id="dProgressWrap" style="display:none;">
+            <div class="progress-track"><div class="progress-fill" id="dProgressFill"></div></div>
+            <div class="progress-label">
+              <span id="dProgressStage">—</span>
+              <span id="dProgressPct"></span>
+            </div>
+          </div>
           <div class="detail-result" id="dResult" style="display:none;"></div>
         </div>
 
@@ -689,10 +729,14 @@
     badge.className = `badge badge-${job.status}`;
 
     document.getElementById('dCreated').textContent = formatTime(job.created_at);
+    document.getElementById('dFinished').style.display = job.finished_at ? '' : 'none';
     if (job.finished_at) {
-      document.getElementById('dFinished').style.display = '';
       document.getElementById('dFinishedVal').textContent = formatTime(job.finished_at);
     }
+
+    renderProgress(job, {
+      wrap: 'dProgressWrap', fill: 'dProgressFill', stage: 'dProgressStage', pct: 'dProgressPct',
+    });
 
     const resultEl = document.getElementById('dResult');
     if (job.result && job.result.audio_path) {
@@ -723,6 +767,31 @@
   function esc(s) { return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
   function formatTime(iso) { return iso ? new Date(iso + 'Z').toLocaleTimeString() : '—'; }
 
+  // Shows/updates a progress bar for a job's current download stage.
+  // `ids` names the wrap/fill/stage/pct elements to drive.
+  function renderProgress(job, ids) {
+    const wrap = document.getElementById(ids.wrap);
+    if (!wrap) return;
+    if (job.status !== 'running' || !job.stage) {
+      wrap.style.display = 'none';
+      return;
+    }
+    wrap.style.display = '';
+    const fill = document.getElementById(ids.fill);
+    const stageEl = document.getElementById(ids.stage);
+    const pctEl = document.getElementById(ids.pct);
+    if (stageEl) stageEl.textContent = job.stage;
+    if (job.progress == null) {
+      if (fill) fill.classList.add('indeterminate');
+      if (fill) fill.style.width = '';
+      if (pctEl) pctEl.textContent = '';
+    } else {
+      if (fill) fill.classList.remove('indeterminate');
+      if (fill) fill.style.width = job.progress + '%';
+      if (pctEl) pctEl.textContent = job.progress.toFixed(1) + '%';
+    }
+  }
+
   // ── Job list (sidebar) ───────────────────────
   let allJobs = [];
 
@@ -734,6 +803,19 @@
       : `<div class="job-card-thumb job-card-thumb-empty">♪</div>`;
     const artist = job.artist || job.uploader || '';
     const title = job.title || job.url;
+
+    const progress = job.status === 'running' && job.stage ? `
+      <div class="progress-wrap">
+        <div class="progress-track progress-track-sm">
+          <div class="progress-fill ${job.progress == null ? 'indeterminate' : ''}"
+               style="${job.progress == null ? '' : `width:${job.progress}%`}"></div>
+        </div>
+        <div class="progress-label">
+          <span>${esc(job.stage)}</span>
+          <span>${job.progress == null ? '' : job.progress.toFixed(1) + '%'}</span>
+        </div>
+      </div>
+    ` : '';
 
     return `
       <div class="job-card-row">
@@ -747,6 +829,7 @@
             <span>${formatTime(job.created_at)}</span>
             ${showFinished && job.finished_at ? `<span>finished ${formatTime(job.finished_at)}</span>` : ''}
           </div>
+          ${progress}
         </div>
       </div>
       ${showResult && job.result && job.result.audio_path ? `<div style="font-family:var(--mono);font-size:10px;color:var(--success);margin-top:6px;word-break:break-all;">${esc(job.result.audio_path)}</div>` : ''}
