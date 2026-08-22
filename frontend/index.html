@@ -378,8 +378,9 @@
     margin-top: 4px;
   }
 
-  /* ── Per-operation bars (one per download stage: video / audio / tagging) ── */
+  /* ── Per-operation bars (one per download stage: video / audio) ── */
   .operations-list { display: flex; flex-direction: column; gap: 10px; margin-top: 10px; }
+  .operations-list-sm { gap: 6px; margin-top: 6px; }
   .op-pending .progress-track { opacity: 0.4; }
   .op-pending .progress-label { color: #333345; }
   .op-done .progress-fill { background: var(--success); }
@@ -876,22 +877,16 @@
   function escAttr(s) { return esc(s).replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
   function formatTime(iso) { return iso ? new Date(iso + 'Z').toLocaleTimeString() : '—'; }
 
-  // Renders one progress bar per download stage (video / audio / tagging) —
-  // job.operations only lists the stages this job actually runs (HOST-88: a
-  // single shared bar used to reset to 0% between stages, and even mid-stage
-  // when yt-dlp merged separate video+audio streams, so it looked like it hit
-  // 100% three times).
-  function renderOperations(job) {
-    const container = document.getElementById('dOperations');
-    if (!container) return;
-    const ops = job.operations || [];
-    if (!ops.length || (job.status !== 'running' && job.status !== 'error')) {
-      container.style.display = 'none';
-      container.innerHTML = '';
-      return;
-    }
-    container.style.display = '';
-    container.innerHTML = ops.map(op => {
+  // Renders one progress bar per download stage (video / audio) — job.operations
+  // only lists the stages this job actually runs, e.g. a video-only job gets
+  // one bar, not two (HOST-88: a single shared bar used to reset to 0% between
+  // stages, and even mid-stage when yt-dlp merged separate video+audio
+  // streams, so it looked like it hit 100% three times). Used by both the job
+  // detail view and the compact sidebar/queue cards (`compact: true` there).
+  function operationBarsHtml(ops, { compact = false } = {}) {
+    if (!ops || !ops.length) return '';
+    const trackClass = compact ? 'progress-track progress-track-sm' : 'progress-track';
+    const bars = ops.map(op => {
       const indeterminate = op.progress == null;
       const width = op.status === 'done' ? '100%' : (indeterminate ? '' : `${op.progress}%`);
       const fillClasses = ['progress-fill'];
@@ -902,7 +897,7 @@
         : (indeterminate ? '' : op.progress.toFixed(1) + '%');
       return `
         <div class="progress-wrap op-${op.status}">
-          <div class="progress-track"><div class="${fillClasses.join(' ')}" style="width:${width}"></div></div>
+          <div class="${trackClass}"><div class="${fillClasses.join(' ')}" style="width:${width}"></div></div>
           <div class="progress-label">
             <span>${esc(op.label)}</span>
             <span>${pctText}</span>
@@ -910,6 +905,20 @@
         </div>
       `;
     }).join('');
+    return `<div class="operations-list${compact ? ' operations-list-sm' : ''}">${bars}</div>`;
+  }
+
+  function renderOperations(job) {
+    const container = document.getElementById('dOperations');
+    if (!container) return;
+    const ops = job.operations || [];
+    if (!ops.length || (job.status !== 'running' && job.status !== 'error')) {
+      container.style.display = 'none';
+      container.innerHTML = '';
+      return;
+    }
+    container.style.display = '';
+    container.innerHTML = operationBarsHtml(ops);
   }
 
   // ── Job list (sidebar) ───────────────────────
@@ -924,18 +933,9 @@
     const artist = job.artist || job.uploader || '';
     const title = job.title || job.url;
 
-    const progress = job.status === 'running' && job.stage ? `
-      <div class="progress-wrap">
-        <div class="progress-track progress-track-sm">
-          <div class="progress-fill ${job.progress == null ? 'indeterminate' : ''}"
-               style="${job.progress == null ? '' : `width:${job.progress}%`}"></div>
-        </div>
-        <div class="progress-label">
-          <span>${esc(job.stage)}</span>
-          <span>${job.progress == null ? '' : job.progress.toFixed(1) + '%'}</span>
-        </div>
-      </div>
-    ` : '';
+    const progress = (job.status === 'running' || job.status === 'error') && job.operations && job.operations.length
+      ? operationBarsHtml(job.operations, { compact: true })
+      : '';
 
     return `
       <div class="job-card-row">

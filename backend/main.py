@@ -135,14 +135,15 @@ def _initial_operations(settings: dict) -> List[dict]:
     """Build this job's operation list (one entry per progress bar) from current settings.
 
     Only includes stages that will actually run — e.g. a video-only job (audio
-    disabled) has no "Tagging" bar, since tagging only happens for the audio path.
+    disabled) has one bar, not two. Tagging isn't included: it's a near-instant
+    ID3 write with no meaningful progress of its own, so it doesn't get a bar —
+    it just happens after the "Audio" bar completes.
     """
     operations = []
     if settings["video"]["enabled"]:
         operations.append({"key": "video", "label": "Video", "status": "pending", "progress": None})
     if settings["audio"]["enabled"]:
         operations.append({"key": "audio", "label": "Audio", "status": "pending", "progress": None})
-        operations.append({"key": "tagging", "label": "Tagging", "status": "pending", "progress": None})
     return operations
 
 
@@ -430,9 +431,9 @@ async def _run_job(job_id: str):
                 finish_op("audio", "error")
                 raise RuntimeError("Audio download failed — MP3 path not found.")
 
-            # 5. Tag MP3
+            # 5. Tag MP3 — near-instant, so no bar of its own; the "Audio" bar
+            # is already done() at this point.
             job["stage"] = "Tagging"
-            start_op("tagging", indeterminate=True)
             log("Tagging MP3...")
             final_path = await asyncio.to_thread(
                 tag_mp3,
@@ -442,7 +443,6 @@ async def _run_job(job_id: str):
                 title,   # album = title
                 youtube_id=youtube_id,
             )
-            finish_op("tagging")
             log(f"✅ Tagged MP3: {final_path}")
             job["result"]["audio_path"] = final_path
 
