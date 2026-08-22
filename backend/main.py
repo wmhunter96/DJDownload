@@ -8,6 +8,9 @@ Endpoints:
   POST /api/jobs      → submit a download job
   GET  /api/jobs      → list all jobs
   GET  /api/jobs/{id} → get job status + logs
+  GET  /api/discovery/djs      → list DJs already in the library
+  POST /api/discovery/search   → search YouTube for missed sets
+  POST /api/discovery/dismiss  → dismiss a candidate (won't resurface)
   GET  /api/status    → health check
 """
 
@@ -30,6 +33,8 @@ from backend.downloader import (
     YtDlpForbiddenError,
 )
 from backend.tagging import tag_mp3
+from backend import library
+from backend.discovery import search_youtube, YouTubeApiError
 
 import os
 
@@ -71,6 +76,15 @@ class UpdateSettingsRequest(BaseModel):
     video_output_dir: str
     artist_mode: str          # "channel" | "custom"
     artist_custom_name: str
+    youtube_api_key: str = ""
+
+
+class DiscoverySearchRequest(BaseModel):
+    dj: Optional[str] = None   # None/omitted = search every known DJ
+
+
+class DiscoveryDismissRequest(BaseModel):
+    video_id: str
 
 
 # ---------------------------------------------------------------------------
@@ -84,6 +98,7 @@ def get_settings():
 
 @app.post("/api/settings")
 def post_settings(req: UpdateSettingsRequest):
+    current = load_settings()
     settings = {
         "audio": {
             "enabled": req.audio_enabled,
@@ -96,6 +111,12 @@ def post_settings(req: UpdateSettingsRequest):
         "artist": {
             "mode": req.artist_mode,
             "custom_name": req.artist_custom_name,
+        },
+        "discovery": {
+            "youtube_api_key": req.youtube_api_key,
+            # dismissed_ids is server-managed (see /api/discovery/dismiss),
+            # not part of the settings form — carry the existing value forward.
+            "dismissed_ids": current["discovery"]["dismissed_ids"],
         },
     }
     save_settings(settings)
@@ -141,6 +162,62 @@ def get_job(job_id: str):
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
     return job
+
+
+# ---------------------------------------------------------------------------
+# Routes — discovery (missed-set finder)
+# ---------------------------------------------------------------------------
+
+@app.get("/api/discovery/djs")
+def list_discovery_djs():
+    settings = load_settings()
+    return {"djs": library.list_artists(settings["audio"]["output_dir"])}
+
+
+@app.post("/api/discovery/search")
+async def discovery_search(req: DiscoverySearchRequest):
+    settings = load_settings()
+    api_key = settings["discovery"]["youtube_api_key"].strip()
+    if not api_key:
+        raise HTTPException(status_code=400, detail="No YouTube API key configured — add one in Settings.")
+
+    audio_dir = settings["audio"]["output_dir"]
+    dismissed_ids = set(settings["discovery"]["dismissed_ids"])
+
+    djs = [req.dj] if req.dj else library.list_artists(audio_dir)
+    if not djs:
+        return {"results": []}
+
+    def run_searches():
+        results = []
+        for dj in djs:
+            library_entries = [e for e in library.scan_library(audio_dir) if e["artist"].lower() == dj.lower()]
+            try:
+                candidates = search_youtube(api_key, dj)
+            except YouTubeApiError as exc:
+                raise HTTPException(status_code=502, detail=str(exc))
+            for candidate in candidates:
+                if candidate["duration_s"] < 1800:
+                    continue
+                if candidate["video_id"] in dismissed_ids:
+                    continue
+                if library.is_duplicate(candidate["title"], candidate["video_id"], library_entries):
+                    continue
+                results.append({**candidate, "matched_dj": dj})
+        return results
+
+    results = await asyncio.to_thread(run_searches)
+    return {"results": results}
+
+
+@app.post("/api/discovery/dismiss")
+def discovery_dismiss(req: DiscoveryDismissRequest):
+    settings = load_settings()
+    dismissed = settings["discovery"]["dismissed_ids"]
+    if req.video_id not in dismissed:
+        dismissed.append(req.video_id)
+    save_settings(settings)
+    return {"ok": True}
 
 
 # ---------------------------------------------------------------------------
@@ -197,6 +274,7 @@ async def _run_job(job_id: str):
         meta = await _run_with_forbidden_retry(fetch_metadata, job["url"], log=log)
         title = meta["title"]
         uploader = meta["uploader"]
+        youtube_id = meta.get("id") or None
         job["title"] = title
         job["uploader"] = uploader
         job["thumbnail"] = meta.get("thumbnail") or None
@@ -263,6 +341,7 @@ async def _run_job(job_id: str):
                 title,
                 artist,
                 title,   # album = title
+                youtube_id=youtube_id,
             )
             log(f"✅ Tagged MP3: {final_path}")
             job["result"]["audio_path"] = final_path

@@ -13,9 +13,12 @@ Tags written:
            the user provided)
   - TALB  (album)
   - TXXX:RELEASETYPE = album;live  (Plex live album detection)
+  - TXXX:YOUTUBE_ID  (source video ID — lets the missed-set finder dedupe
+                       exactly instead of relying on fuzzy title matching)
 """
 
 from pathlib import Path
+from typing import Optional
 from mutagen.id3 import ID3, TIT2, TPE1, TPE2, TALB, TXXX, ID3NoHeaderError
 
 
@@ -25,6 +28,7 @@ def tag_mp3(
     artist: str,
     album: str,
     release_type: str = "album;live",
+    youtube_id: Optional[str] = None,
 ) -> str:
     """
     Tag the MP3 at `src` in-place using mutagen.
@@ -50,6 +54,8 @@ def tag_mp3(
         tags["TPE2"] = TPE2(encoding=3, text=artist)
         tags["TALB"] = TALB(encoding=3, text=album)
         tags["TXXX:RELEASETYPE"] = TXXX(encoding=3, desc="RELEASETYPE", text=release_type)
+        if youtube_id:
+            tags["TXXX:YOUTUBE_ID"] = TXXX(encoding=3, desc="YOUTUBE_ID", text=youtube_id)
 
         tags.save(str(src_path), v2_version=3)
 

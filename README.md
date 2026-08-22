@@ -21,6 +21,18 @@ DJDownload downloads video and/or audio from YouTube, embeds thumbnails, and tag
   - **RELEASETYPE** = `album;live`
 - Outputs **one final tagged MP3**
 
+### Missed-Set Finder (Discover tab)
+
+Search YouTube for sets you might be missing from DJs already in your library:
+
+- Pick a DJ (or search **All DJs**) and search YouTube for matching videos
+- Filters to videos **longer than 30 minutes**
+- Cross-references against your library — by embedded YouTube video ID when available, otherwise by fuzzy title matching — so you only see **new/missing candidates**
+- Results are a **review queue**: Download or Dismiss each one manually, nothing downloads automatically
+- Dismissed candidates are remembered and won't resurface on future searches
+
+Requires a **YouTube Data API v3 key** (Google Cloud Console → enable "YouTube Data API v3" → create an API key), set in the Discovery card on the Settings tab. Each search costs API quota — `search.list` is 100 units against a default free quota of 10,000 units/day (~100 searches/day), and "All DJs" uses one search per DJ in your library.
+
 ---
 
 ## Configuration
@@ -39,8 +51,6 @@ DJDownload downloads video and/or audio from YouTube, embeds thumbnails, and tag
 
 - Register **YouTube channels**
 - Poll channels for **new uploads**
-- Only process videos **longer than X minutes** (ex: 40 minutes)
-- **Duplicate prevention**
 - **Per-channel rules** (artist override, duration filters, etc.)
 
 ---

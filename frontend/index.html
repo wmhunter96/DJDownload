@@ -488,6 +488,7 @@
   <div class="logo">DJ<span>/</span>DOWNLOAD</div>
   <nav>
     <button class="active" data-page="download">Download</button>
+    <button data-page="discover">Discover</button>
     <button data-page="jobs">Queue</button>
     <button data-page="settings">Settings</button>
   </nav>
@@ -578,6 +579,34 @@
       </div>
     </div>
 
+    <!-- Discover page (missed-set finder) -->
+    <div id="page-discover" class="page" style="gap:16px;">
+      <div class="section-label">Missed-Set Finder</div>
+      <div style="display:flex;gap:10px;align-items:flex-end;">
+        <div class="field" style="flex:1;">
+          <label>DJ</label>
+          <select id="discoverDjSelect">
+            <option value="">All DJs</option>
+          </select>
+        </div>
+        <button class="btn-primary" id="discoverSearchBtn" style="width:auto;white-space:nowrap;padding:9px 20px;" onclick="runDiscoverySearch()">
+          🔍&nbsp; Search YouTube
+        </button>
+      </div>
+
+      <div class="progress-wrap" id="discoverProgressWrap" style="display:none;">
+        <div class="progress-track"><div class="progress-fill indeterminate"></div></div>
+        <div class="progress-label"><span>Searching YouTube...</span><span></span></div>
+      </div>
+
+      <div id="discoverResults" style="display:flex;flex-direction:column;gap:10px;flex:1;overflow-y:auto;">
+        <div class="empty-state" id="discoverEmpty" style="height:100%;min-height:260px;">
+          <div class="empty-state-icon">🔎</div>
+          <span id="discoverEmptyText">Pick a DJ and search for missed sets.</span>
+        </div>
+      </div>
+    </div>
+
     <!-- Settings page -->
     <div id="page-settings" class="page">
       <div class="section-label">Configuration</div>
@@ -632,6 +661,19 @@
             <input type="text" id="customArtist" placeholder="e.g. Boiler Room" />
           </div>
         </div>
+
+        <div class="settings-card" style="grid-column:1/-1;">
+          <h3>Discovery</h3>
+          <div class="field">
+            <label>YouTube Data API Key</label>
+            <input type="text" id="youtubeApiKey" placeholder="Required for the Discover tab" />
+          </div>
+          <div class="toggle-sub">
+            Create a key in the Google Cloud Console and enable the "YouTube Data API v3".
+            Each search costs API quota — the default free quota is 10,000 units/day
+            (~100 searches; "All DJs" uses one search per DJ).
+          </div>
+        </div>
       </div>
 
       <div class="save-bar">
@@ -664,6 +706,7 @@
       document.getElementById(`page-${page}`).classList.add('visible');
       if (page === 'jobs') renderAllJobs();
       if (page === 'settings') loadSettings();
+      if (page === 'discover') loadDiscoverDjs();
     });
   });
 
@@ -765,6 +808,8 @@
     return esc(line);
   }
   function esc(s) { return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+  // Attribute-safe escaping — also neutralizes quotes, for values placed inside data-* attrs.
+  function escAttr(s) { return esc(s).replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
   function formatTime(iso) { return iso ? new Date(iso + 'Z').toLocaleTimeString() : '—'; }
 
   // Shows/updates a progress bar for a job's current download stage.
@@ -900,6 +945,7 @@
       document.getElementById('videoDir').value = s.video?.output_dir ?? '';
       document.getElementById('artistMode').value = s.artist?.mode ?? 'channel';
       document.getElementById('customArtist').value = s.artist?.custom_name ?? '';
+      document.getElementById('youtubeApiKey').value = s.discovery?.youtube_api_key ?? '';
       toggleCustomArtist();
     } catch {}
   }
@@ -912,6 +958,7 @@
       video_output_dir: document.getElementById('videoDir').value,
       artist_mode: document.getElementById('artistMode').value,
       artist_custom_name: document.getElementById('customArtist').value,
+      youtube_api_key: document.getElementById('youtubeApiKey').value,
     };
     await fetch(`${API}/api/settings`, {
       method: 'POST',
@@ -928,6 +975,142 @@
     document.getElementById('customArtistField').style.display = show ? '' : 'none';
   }
   document.getElementById('artistMode').addEventListener('change', toggleCustomArtist);
+
+  // ── Discover (missed-set finder) ──────────────
+  function formatDuration(totalSeconds) {
+    const h = Math.floor(totalSeconds / 3600);
+    const m = Math.floor((totalSeconds % 3600) / 60);
+    const s = Math.floor(totalSeconds % 60);
+    const mm = h > 0 ? String(m).padStart(2, '0') : String(m);
+    const ss = String(s).padStart(2, '0');
+    return h > 0 ? `${h}:${mm}:${ss}` : `${mm}:${ss}`;
+  }
+
+  async function loadDiscoverDjs() {
+    try {
+      const res = await fetch(`${API}/api/discovery/djs`);
+      const data = await res.json();
+      const sel = document.getElementById('discoverDjSelect');
+      const current = sel.value;
+      sel.innerHTML = '<option value="">All DJs</option>' +
+        (data.djs || []).map(dj => `<option value="${escAttr(dj)}">${esc(dj)}</option>`).join('');
+      sel.value = current;
+    } catch {}
+  }
+
+  function discoveryEmptyMessage(message) {
+    document.getElementById('discoverEmptyText').textContent = message;
+    document.getElementById('discoverEmpty').style.display = 'flex';
+  }
+
+  function discoveryCardHTML(item) {
+    const thumb = item.thumbnail
+      ? `<img class="job-card-thumb" src="${escAttr(item.thumbnail)}" alt="" loading="lazy" onerror="this.outerHTML='<div class=&quot;job-card-thumb job-card-thumb-empty&quot;>♪</div>'">`
+      : `<div class="job-card-thumb job-card-thumb-empty">♪</div>`;
+    return `
+      <div class="job-card" style="cursor:default;">
+        <div class="job-card-row">
+          ${thumb}
+          <div class="job-card-body">
+            <div class="job-card-artist">${esc(item.matched_dj)}</div>
+            <div class="job-card-title">${esc(item.title)}</div>
+            <div class="job-meta">
+              <span>${esc(item.channel)}</span>
+              <span>${formatDuration(item.duration_s)}</span>
+            </div>
+          </div>
+        </div>
+        <div style="display:flex;gap:8px;margin-top:10px;">
+          <button class="btn-secondary discover-download" style="flex:1;" data-url="${escAttr(item.url)}" data-artist="${escAttr(item.matched_dj)}">⬇ Download</button>
+          <button class="btn-secondary discover-dismiss" style="flex:1;" data-video-id="${escAttr(item.video_id)}">✕ Dismiss</button>
+        </div>
+      </div>
+    `;
+  }
+
+  function renderDiscoveryResults(results) {
+    const container = document.getElementById('discoverResults');
+    container.querySelectorAll('.job-card').forEach(c => c.remove());
+    if (!results.length) {
+      discoveryEmptyMessage('No missing sets found — your library is up to date.');
+      return;
+    }
+    document.getElementById('discoverEmpty').style.display = 'none';
+    container.insertAdjacentHTML('beforeend', results.map(discoveryCardHTML).join(''));
+  }
+
+  async function runDiscoverySearch() {
+    const dj = document.getElementById('discoverDjSelect').value || null;
+    const btn = document.getElementById('discoverSearchBtn');
+    btn.disabled = true;
+    document.getElementById('discoverProgressWrap').style.display = '';
+    document.getElementById('discoverEmpty').style.display = 'none';
+    document.getElementById('discoverResults').querySelectorAll('.job-card').forEach(c => c.remove());
+
+    try {
+      const res = await fetch(`${API}/api/discovery/search`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ dj }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        discoveryEmptyMessage(err.detail || 'Search failed.');
+        return;
+      }
+      const data = await res.json();
+      renderDiscoveryResults(data.results || []);
+    } catch (e) {
+      discoveryEmptyMessage('Search failed: ' + e);
+    } finally {
+      btn.disabled = false;
+      document.getElementById('discoverProgressWrap').style.display = 'none';
+    }
+  }
+
+  async function downloadDiscoveryCandidate(url, artist, btnEl) {
+    btnEl.disabled = true;
+    btnEl.textContent = '⏳ Queuing...';
+    try {
+      const res = await fetch(`${API}/api/jobs`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url, artist_override: artist || null }),
+      });
+      const data = await res.json();
+      selectJob(data.job_id);
+    } catch (e) {
+      alert('Failed to queue download: ' + e);
+      btnEl.disabled = false;
+      btnEl.textContent = '⬇ Download';
+    }
+  }
+
+  async function dismissDiscoveryCandidate(videoId, btnEl) {
+    const card = btnEl.closest('.job-card');
+    btnEl.disabled = true;
+    try {
+      await fetch(`${API}/api/discovery/dismiss`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ video_id: videoId }),
+      });
+      if (card) card.remove();
+      if (!document.getElementById('discoverResults').querySelectorAll('.job-card').length) {
+        discoveryEmptyMessage('No missing sets found — your library is up to date.');
+      }
+    } catch (e) {
+      btnEl.disabled = false;
+    }
+  }
+
+  // Delegated so it keeps working after renderDiscoveryResults() replaces card HTML.
+  document.getElementById('discoverResults').addEventListener('click', (e) => {
+    const dlBtn = e.target.closest('.discover-download');
+    if (dlBtn) { downloadDiscoveryCandidate(dlBtn.dataset.url, dlBtn.dataset.artist, dlBtn); return; }
+    const dismissBtn = e.target.closest('.discover-dismiss');
+    if (dismissBtn) { dismissDiscoveryCandidate(dismissBtn.dataset.videoId, dismissBtn); return; }
+  });
 
   // ── Init ─────────────────────────────────────
   renderJobList();

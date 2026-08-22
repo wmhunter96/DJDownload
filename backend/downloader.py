@@ -66,6 +66,7 @@ def fetch_metadata(url: str) -> dict:
 
     data = json.loads(result.stdout)
     return {
+        "id": data.get("id", ""),
         "title": data.get("title", "Unknown Title").strip(),
         "uploader": data.get("uploader", data.get("channel", "Unknown Artist")).strip(),
         "thumbnail": data.get("thumbnail", ""),

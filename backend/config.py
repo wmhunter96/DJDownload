@@ -43,4 +43,8 @@ def _defaults() -> dict:
             "mode": "channel",   # "channel" | "custom"
             "custom_name": "",
         },
+        "discovery": {
+            "youtube_api_key": "",
+            "dismissed_ids": [],   # video IDs the user has dismissed from the review queue
+        },
     }
