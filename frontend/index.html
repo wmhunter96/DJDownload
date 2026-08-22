@@ -586,12 +586,16 @@
         <div class="field" style="flex:1;">
           <label>DJ</label>
           <select id="discoverDjSelect">
-            <option value="">All DJs</option>
+            <option value="">Select a DJ…</option>
           </select>
         </div>
         <button class="btn-primary" id="discoverSearchBtn" style="width:auto;white-space:nowrap;padding:9px 20px;" onclick="runDiscoverySearch()">
           🔍&nbsp; Search YouTube
         </button>
+      </div>
+      <div style="display:flex;align-items:center;gap:10px;">
+        <button class="btn-secondary" id="discoverScanBtn" style="width:auto;" onclick="scanAudioLibrary()">↻ Scan Audio Library</button>
+        <span style="font-size:11px;color:var(--muted);">Backfills DJs from existing MP3 tags — new downloads are added automatically.</span>
       </div>
 
       <div class="progress-wrap" id="discoverProgressWrap" style="display:none;">
@@ -992,10 +996,27 @@
       const data = await res.json();
       const sel = document.getElementById('discoverDjSelect');
       const current = sel.value;
-      sel.innerHTML = '<option value="">All DJs</option>' +
+      sel.innerHTML = '<option value="">Select a DJ…</option>' +
         (data.djs || []).map(dj => `<option value="${escAttr(dj)}">${esc(dj)}</option>`).join('');
       sel.value = current;
     } catch {}
+  }
+
+  async function scanAudioLibrary() {
+    const btn = document.getElementById('discoverScanBtn');
+    btn.disabled = true;
+    const original = btn.textContent;
+    btn.textContent = '⏳ Scanning...';
+    try {
+      const res = await fetch(`${API}/api/discovery/scan-library`, { method: 'POST' });
+      const data = await res.json();
+      await loadDiscoverDjs();
+      btn.textContent = data.added && data.added.length ? `✓ Added ${data.added.length}` : '✓ Up to date';
+    } catch (e) {
+      btn.textContent = '✗ Scan failed';
+    } finally {
+      setTimeout(() => { btn.textContent = original; btn.disabled = false; }, 2000);
+    }
   }
 
   function discoveryEmptyMessage(message) {
@@ -1040,7 +1061,8 @@
   }
 
   async function runDiscoverySearch() {
-    const dj = document.getElementById('discoverDjSelect').value || null;
+    const dj = document.getElementById('discoverDjSelect').value;
+    if (!dj) { alert('Select a DJ to search for.'); return; }
     const btn = document.getElementById('discoverSearchBtn');
     btn.disabled = true;
     document.getElementById('discoverProgressWrap').style.display = '';

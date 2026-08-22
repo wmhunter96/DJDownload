@@ -57,6 +57,19 @@ def list_artists(audio_dir: str) -> List[str]:
     return sorted(seen.values(), key=str.lower)
 
 
+def merge_dj_names(existing: List[str], new_names: List[str]) -> List[str]:
+    """Case-insensitively dedupe `new_names` into `existing`, sorted case-insensitively.
+
+    Keeps whichever casing was already on record for a name that's already present.
+    """
+    by_key = {name.strip().lower(): name.strip() for name in existing if name.strip()}
+    for name in new_names:
+        key = name.strip().lower()
+        if key and key not in by_key:
+            by_key[key] = name.strip()
+    return sorted(by_key.values(), key=str.lower)
+
+
 # Noise commonly appended to DJ set titles that shouldn't affect duplicate
 # detection, e.g. "Fisher (AUS) - Boiler Room [4K]" vs "Fisher - Boiler Room".
 _BRACKETED_RE = re.compile(r"[\(\[\{][^\)\]\}]*[\)\]\}]")

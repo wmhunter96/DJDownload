@@ -13,3 +13,4 @@ artist:
 discovery:
   youtube_api_key: ""  # YouTube Data API v3 key, required for the Discover tab
   dismissed_ids: []    # video IDs dismissed from the review queue (managed by the app)
+  known_djs: []         # DJ names for the Discover dropdown (managed by the app)

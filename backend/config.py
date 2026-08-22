@@ -46,5 +46,7 @@ def _defaults() -> dict:
         "discovery": {
             "youtube_api_key": "",
             "dismissed_ids": [],   # video IDs the user has dismissed from the review queue
+            "known_djs": [],       # DJ names for the Discover dropdown — recorded as jobs
+                                    # complete, or backfilled via "Scan Audio Library"
         },
     }

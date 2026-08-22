@@ -8,9 +8,10 @@ Endpoints:
   POST /api/jobs      → submit a download job
   GET  /api/jobs      → list all jobs
   GET  /api/jobs/{id} → get job status + logs
-  GET  /api/discovery/djs      → list DJs already in the library
-  POST /api/discovery/search   → search YouTube for missed sets
-  POST /api/discovery/dismiss  → dismiss a candidate (won't resurface)
+  GET  /api/discovery/djs           → list known DJs (Discover dropdown)
+  POST /api/discovery/scan-library  → backfill known DJs from audio ID3 tags
+  POST /api/discovery/search        → search YouTube for missed sets (one DJ)
+  POST /api/discovery/dismiss       → dismiss a candidate (won't resurface)
   GET  /api/status    → health check
 """
 
@@ -80,7 +81,7 @@ class UpdateSettingsRequest(BaseModel):
 
 
 class DiscoverySearchRequest(BaseModel):
-    dj: Optional[str] = None   # None/omitted = search every known DJ
+    dj: str   # required — searches are restricted to one DJ at a time (YouTube API quota)
 
 
 class DiscoveryDismissRequest(BaseModel):
@@ -171,11 +172,32 @@ def get_job(job_id: str):
 @app.get("/api/discovery/djs")
 def list_discovery_djs():
     settings = load_settings()
-    return {"djs": library.list_artists(settings["audio"]["output_dir"])}
+    return {"djs": settings["discovery"]["known_djs"]}
+
+
+@app.post("/api/discovery/scan-library")
+def scan_discovery_library():
+    """Backfill the DJ dropdown from the audio library's ID3 tags.
+
+    known_djs is normally built up as jobs complete (works for video-only
+    downloads too, which carry no ID3 tags to scan) — this covers DJs already
+    in the library from before that tracking existed, or added outside the app.
+    """
+    settings = load_settings()
+    scanned = library.list_artists(settings["audio"]["output_dir"])
+    before = set(name.lower() for name in settings["discovery"]["known_djs"])
+    settings["discovery"]["known_djs"] = library.merge_dj_names(settings["discovery"]["known_djs"], scanned)
+    save_settings(settings)
+    added = [name for name in scanned if name.lower() not in before]
+    return {"djs": settings["discovery"]["known_djs"], "added": added}
 
 
 @app.post("/api/discovery/search")
 async def discovery_search(req: DiscoverySearchRequest):
+    dj = req.dj.strip()
+    if not dj:
+        raise HTTPException(status_code=400, detail="Select a DJ to search for.")
+
     settings = load_settings()
     api_key = settings["discovery"]["youtube_api_key"].strip()
     if not api_key:
@@ -183,30 +205,25 @@ async def discovery_search(req: DiscoverySearchRequest):
 
     audio_dir = settings["audio"]["output_dir"]
     dismissed_ids = set(settings["discovery"]["dismissed_ids"])
+    library_entries = [e for e in library.scan_library(audio_dir) if e["artist"].lower() == dj.lower()]
 
-    djs = [req.dj] if req.dj else library.list_artists(audio_dir)
-    if not djs:
-        return {"results": []}
-
-    def run_searches():
+    def run_search():
+        try:
+            candidates = search_youtube(api_key, dj)
+        except YouTubeApiError as exc:
+            raise HTTPException(status_code=502, detail=str(exc))
         results = []
-        for dj in djs:
-            library_entries = [e for e in library.scan_library(audio_dir) if e["artist"].lower() == dj.lower()]
-            try:
-                candidates = search_youtube(api_key, dj)
-            except YouTubeApiError as exc:
-                raise HTTPException(status_code=502, detail=str(exc))
-            for candidate in candidates:
-                if candidate["duration_s"] < 1800:
-                    continue
-                if candidate["video_id"] in dismissed_ids:
-                    continue
-                if library.is_duplicate(candidate["title"], candidate["video_id"], library_entries):
-                    continue
-                results.append({**candidate, "matched_dj": dj})
+        for candidate in candidates:
+            if candidate["duration_s"] < 1800:
+                continue
+            if candidate["video_id"] in dismissed_ids:
+                continue
+            if library.is_duplicate(candidate["title"], candidate["video_id"], library_entries):
+                continue
+            results.append({**candidate, "matched_dj": dj})
         return results
 
-    results = await asyncio.to_thread(run_searches)
+    results = await asyncio.to_thread(run_search)
     return {"results": results}
 
 
@@ -252,6 +269,21 @@ async def _run_with_forbidden_retry(func, *args, log, **kwargs):
         log("⚠ yt-dlp got a 403 Forbidden — binary looks stale, self-updating...")
         await asyncio.to_thread(update_yt_dlp, log)
         return await asyncio.to_thread(func, *args, **kwargs)
+
+
+def _remember_dj(artist: str) -> None:
+    """Record `artist` in discovery.known_djs so it shows up in the Discover dropdown.
+
+    Called on every successful job — covers video-only downloads (no ID3 tags to
+    scan) as well as audio. Pre-existing library entries are backfilled via the
+    "Scan Audio Library" button (POST /api/discovery/scan-library).
+    """
+    artist = artist.strip()
+    if not artist:
+        return
+    settings = load_settings()
+    settings["discovery"]["known_djs"] = library.merge_dj_names(settings["discovery"]["known_djs"], [artist])
+    save_settings(settings)
 
 
 async def _run_job(job_id: str):
@@ -351,6 +383,7 @@ async def _run_job(job_id: str):
 
         job["status"] = "done"
         log("🎉 Job complete.")
+        _remember_dj(artist)
 
     except Exception as exc:
         job["status"] = "error"
