@@ -154,11 +154,32 @@
   .dj-suggestion:hover, .dj-suggestion.active { background: rgba(232,255,0,0.07); }
   .dj-suggestion-qty {
     font-family: var(--mono);
-    font-size: 10px;
-    color: var(--muted);
+    color: var(--text);
     flex-shrink: 0;
   }
   .dj-suggestions-empty { padding: 12px; font-size: 12px; color: var(--muted); }
+
+  /* ── Sort buttons (Discover tab) ── */
+  .sort-buttons { display: flex; gap: 6px; }
+  .sort-btn {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--muted);
+    font-family: var(--mono);
+    font-size: 13px;
+    font-weight: 600;
+    padding: 0 12px;
+    height: 39px;
+    border-radius: 4px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    transition: all 0.15s;
+  }
+  .sort-btn:hover { color: var(--text); border-color: #333348; }
+  .sort-btn.active { color: var(--accent); border-color: var(--accent); background: rgba(232,255,0,0.06); }
+  .sort-arrow { font-size: 10px; width: 8px; display: inline-block; }
 
   /* Toggle row */
   .toggle-row {
@@ -620,12 +641,12 @@
           <input type="text" id="discoverDjInput" placeholder="Type to search DJs…" autocomplete="off" />
           <div id="discoverDjSuggestions" class="dj-suggestions" style="display:none;"></div>
         </div>
-        <div class="field" style="width:150px;">
+        <div class="field" style="width:auto;">
           <label>Sort</label>
-          <select id="discoverSortSelect">
-            <option value="name">Name (A–Z)</option>
-            <option value="qty">Most Sets</option>
-          </select>
+          <div class="sort-buttons">
+            <button type="button" class="sort-btn" id="sortByNameBtn" onclick="setSortField('name')">Aa<span class="sort-arrow" id="sortArrowName"></span></button>
+            <button type="button" class="sort-btn" id="sortByQtyBtn" onclick="setSortField('qty')">123<span class="sort-arrow" id="sortArrowQty"></span></button>
+          </div>
         </div>
         <button class="btn-primary" id="discoverSearchBtn" style="width:auto;white-space:nowrap;padding:9px 20px;" disabled onclick="runDiscoverySearch()">
           🔍&nbsp; Search YouTube
@@ -1065,13 +1086,35 @@
   }
 
   // ── DJ combobox: type-to-search + sort ────────
-  function sortedDjs(list) {
-    const mode = document.getElementById('discoverSortSelect').value;
-    const sorted = [...list];
-    if (mode === 'qty') {
-      sorted.sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
+  let sortField = 'name';   // 'name' | 'qty'
+  let sortDir = 'asc';      // 'asc' | 'desc'
+
+  function setSortField(field) {
+    if (sortField === field) {
+      sortDir = sortDir === 'asc' ? 'desc' : 'asc';
     } else {
-      sorted.sort((a, b) => a.name.localeCompare(b.name));
+      sortField = field;
+      sortDir = field === 'qty' ? 'desc' : 'asc';   // "Most Sets" first feels like the natural default
+    }
+    updateSortButtons();
+    if (document.getElementById('discoverDjSuggestions').style.display !== 'none') renderDjSuggestions();
+  }
+
+  function updateSortButtons() {
+    const nameActive = sortField === 'name';
+    document.getElementById('sortByNameBtn').classList.toggle('active', nameActive);
+    document.getElementById('sortByQtyBtn').classList.toggle('active', !nameActive);
+    document.getElementById('sortArrowName').textContent = nameActive ? (sortDir === 'asc' ? '▲' : '▼') : '';
+    document.getElementById('sortArrowQty').textContent = !nameActive ? (sortDir === 'asc' ? '▲' : '▼') : '';
+  }
+
+  function sortedDjs(list) {
+    const sorted = [...list];
+    const dirMul = sortDir === 'asc' ? 1 : -1;
+    if (sortField === 'qty') {
+      sorted.sort((a, b) => dirMul * (a.count - b.count) || a.name.localeCompare(b.name));
+    } else {
+      sorted.sort((a, b) => dirMul * a.name.localeCompare(b.name));
     }
     return sorted;
   }
@@ -1144,9 +1187,7 @@
     const item = e.target.closest('.dj-suggestion');
     if (item) selectDj(item.dataset.name);
   });
-  document.getElementById('discoverSortSelect').addEventListener('change', () => {
-    if (document.getElementById('discoverDjSuggestions').style.display !== 'none') renderDjSuggestions();
-  });
+  updateSortButtons();
 
   function discoveryEmptyMessage(message) {
     document.getElementById('discoverEmptyText').textContent = message;
