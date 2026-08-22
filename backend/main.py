@@ -85,6 +85,7 @@ class UpdateSettingsRequest(BaseModel):
     youtube_api_key: str = ""
     plex_server_url: str = ""
     plex_token: str = ""
+    plex_section_name: str = ""
 
 
 class DiscoverySearchRequest(BaseModel):
@@ -98,6 +99,7 @@ class DiscoveryDismissRequest(BaseModel):
 class PlexTestRequest(BaseModel):
     server_url: str
     token: str
+    section_name: str = ""
 
 
 # ---------------------------------------------------------------------------
@@ -133,6 +135,7 @@ def post_settings(req: UpdateSettingsRequest):
         "plex": {
             "server_url": req.plex_server_url,
             "token": req.plex_token,
+            "section_name": req.plex_section_name,
         },
     }
     save_settings(settings)
@@ -148,7 +151,7 @@ def post_settings_plex_test(req: PlexTestRequest):
     connectivity and auth are both fine."""
     settings = load_settings()
     local_filenames = [e["filename"] for e in library.scan_library(settings["audio"]["output_dir"])]
-    return plex.test_connection(req.server_url, req.token, local_filenames)
+    return plex.test_connection(req.server_url, req.token, req.section_name, local_filenames)
 
 
 # ---------------------------------------------------------------------------
@@ -362,7 +365,7 @@ def get_analytics_plex_link(filename: str):
     or hasn't scanned this file in yet."""
     settings = load_settings()
     plex_settings = settings["plex"]
-    url = plex.get_play_link(plex_settings["server_url"], plex_settings["token"], filename)
+    url = plex.get_play_link(plex_settings["server_url"], plex_settings["token"], filename, plex_settings["section_name"])
     if not url:
         raise HTTPException(status_code=404, detail="Not found in Plex library")
     return {"url": url}
@@ -377,7 +380,7 @@ def post_analytics_plex_refresh():
     if Plex isn't configured/reachable (check server logs for [plex] lines)."""
     settings = load_settings()
     plex_settings = settings["plex"]
-    reached = plex.trigger_scan(plex_settings["server_url"], plex_settings["token"])
+    reached = plex.trigger_scan(plex_settings["server_url"], plex_settings["token"], plex_settings["section_name"])
     plex.invalidate_cache()
     return {"ok": True, "plex_reached": reached}
 

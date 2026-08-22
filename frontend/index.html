@@ -965,11 +965,18 @@
             <label>Plex Token</label>
             <input type="text" id="plexToken" placeholder="X-Plex-Token" />
           </div>
+          <div class="field">
+            <label>Library Section <span style="font-weight:400;color:var(--muted);">(optional)</span></label>
+            <input type="text" id="plexSectionName" placeholder="Leave blank to auto-detect" />
+          </div>
           <div class="toggle-sub">
             Enables a "Play in Plex" button on the Analytics tab's file cards, deep-linking
             into Plex Web. Requires a Plex library already scanning the same audio output
             directory. Find your token at
-            support.plex.tv → "Finding an authentication token".
+            support.plex.tv → "Finding an authentication token". If you have more than one
+            music library in Plex, set Library Section to the exact name of the one
+            DJDownload writes to — otherwise the first one Plex reports is used, which may
+            be the wrong one.
           </div>
           <div style="margin-top:10px;">
             <button type="button" class="btn-secondary" style="width:auto;" id="plexTestBtn" onclick="testPlexConnection()">Test Connection</button>
@@ -1295,6 +1302,7 @@
       document.getElementById('youtubeApiKey').value = s.discovery?.youtube_api_key ?? '';
       document.getElementById('plexServerUrl').value = s.plex?.server_url ?? '';
       document.getElementById('plexToken').value = s.plex?.token ?? '';
+      document.getElementById('plexSectionName').value = s.plex?.section_name ?? '';
     } catch {}
   }
 
@@ -1307,6 +1315,7 @@
       youtube_api_key: document.getElementById('youtubeApiKey').value,
       plex_server_url: document.getElementById('plexServerUrl').value,
       plex_token: document.getElementById('plexToken').value,
+      plex_section_name: document.getElementById('plexSectionName').value,
     };
     await fetch(`${API}/api/settings`, {
       method: 'POST',
@@ -1336,6 +1345,7 @@
     const results = document.getElementById('plexTestResults');
     const serverUrl = document.getElementById('plexServerUrl').value.trim();
     const token = document.getElementById('plexToken').value.trim();
+    const sectionName = document.getElementById('plexSectionName').value.trim();
 
     results.style.display = 'flex';
     if (!serverUrl || !token) {
@@ -1352,7 +1362,7 @@
       const res = await fetch(`${API}/api/settings/plex-test`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ server_url: serverUrl, token }),
+        body: JSON.stringify({ server_url: serverUrl, token, section_name: sectionName }),
       });
       const data = await res.json();
       results.innerHTML = (data.steps || []).map(plexTestStepHTML).join('');

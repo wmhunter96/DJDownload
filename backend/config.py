@@ -49,5 +49,6 @@ def _defaults() -> dict:
         "plex": {
             "server_url": "",   # e.g. http://192.168.1.50:32400 — Plex server scanning the same audio output dir
             "token": "",        # X-Plex-Token, used to look up library items for "Play in Plex"
+            "section_name": "",  # optional: pins which music library to use when there's more than one
         },
     }
