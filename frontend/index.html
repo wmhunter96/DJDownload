@@ -749,9 +749,15 @@
 
       <div class="analytics-stats" id="analyticsStats"></div>
 
-      <div style="display:flex;align-items:center;justify-content:space-between;">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;">
         <div class="section-label" style="margin-bottom:0;border-bottom:none;padding-bottom:0;">Leaderboard — Sets per DJ</div>
-        <button class="btn-secondary" style="width:auto;" onclick="loadAnalytics()">↻ Refresh</button>
+        <div style="display:flex;align-items:center;gap:10px;">
+          <div class="sort-buttons">
+            <button type="button" class="sort-btn" id="analyticsSortByNameBtn" onclick="setAnalyticsSort('artist')">Aa<span class="sort-arrow" id="analyticsSortArrowName"></span></button>
+            <button type="button" class="sort-btn" id="analyticsSortByQtyBtn" onclick="setAnalyticsSort('count')">123<span class="sort-arrow" id="analyticsSortArrowQty"></span></button>
+          </div>
+          <button class="btn-secondary" style="width:auto;" onclick="loadAnalytics()">↻ Refresh</button>
+        </div>
       </div>
 
       <div id="analyticsTableWrap" style="flex:1;overflow-y:auto;">
@@ -1478,10 +1484,24 @@
     return sorted;
   }
 
+  // Keeps the Aa/123 quick-sort buttons in sync with whatever set the sort
+  // (the buttons themselves, or a click on a table column header) — only
+  // 'artist'/'count' map to a button, so both go inactive for the other
+  // sortable columns (duration, size, last added).
+  function updateAnalyticsSortButtons() {
+    const nameActive = analyticsSortField === 'artist';
+    const qtyActive = analyticsSortField === 'count';
+    document.getElementById('analyticsSortByNameBtn').classList.toggle('active', nameActive);
+    document.getElementById('analyticsSortByQtyBtn').classList.toggle('active', qtyActive);
+    document.getElementById('analyticsSortArrowName').textContent = nameActive ? (analyticsSortDir === 'asc' ? '▲' : '▼') : '';
+    document.getElementById('analyticsSortArrowQty').textContent = qtyActive ? (analyticsSortDir === 'asc' ? '▲' : '▼') : '';
+  }
+
   function renderAnalyticsTable() {
     document.querySelectorAll('#analyticsTable th.sortable').forEach(th => {
       th.classList.toggle('sort-active', th.dataset.sort === analyticsSortField);
     });
+    updateAnalyticsSortButtons();
 
     const tbody = document.getElementById('analyticsTbody');
     const empty = document.getElementById('analyticsEmpty');
@@ -1512,6 +1532,7 @@
     const th = e.target.closest('th.sortable');
     if (th) setAnalyticsSort(th.dataset.sort);
   });
+  updateAnalyticsSortButtons();
 
   // ── Init ─────────────────────────────────────
   renderJobList();
