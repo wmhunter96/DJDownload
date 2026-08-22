@@ -378,6 +378,15 @@
     margin-top: 4px;
   }
 
+  /* ── Per-operation bars (one per download stage: video / audio / tagging) ── */
+  .operations-list { display: flex; flex-direction: column; gap: 10px; margin-top: 10px; }
+  .op-pending .progress-track { opacity: 0.4; }
+  .op-pending .progress-label { color: #333345; }
+  .op-done .progress-fill { background: var(--success); }
+  .op-done .progress-label { color: var(--success); }
+  .op-error .progress-fill { background: var(--danger); width: 100% !important; animation: none !important; }
+  .op-error .progress-label { color: var(--danger); }
+
   /* ── Log panel ── */
   .log-box {
     background: #070709;
@@ -617,13 +626,7 @@
             <span id="dCreated">—</span>
             <span id="dFinished" style="display:none">→ <span id="dFinishedVal">—</span></span>
           </div>
-          <div class="progress-wrap" id="dProgressWrap" style="display:none;">
-            <div class="progress-track"><div class="progress-fill" id="dProgressFill"></div></div>
-            <div class="progress-label">
-              <span id="dProgressStage">—</span>
-              <span id="dProgressPct"></span>
-            </div>
-          </div>
+          <div class="operations-list" id="dOperations" style="display:none;"></div>
           <div class="detail-result" id="dResult" style="display:none;"></div>
         </div>
 
@@ -840,9 +843,7 @@
       document.getElementById('dFinishedVal').textContent = formatTime(job.finished_at);
     }
 
-    renderProgress(job, {
-      wrap: 'dProgressWrap', fill: 'dProgressFill', stage: 'dProgressStage', pct: 'dProgressPct',
-    });
+    renderOperations(job);
 
     const resultEl = document.getElementById('dResult');
     if (job.result && job.result.audio_path) {
@@ -875,29 +876,40 @@
   function escAttr(s) { return esc(s).replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
   function formatTime(iso) { return iso ? new Date(iso + 'Z').toLocaleTimeString() : '—'; }
 
-  // Shows/updates a progress bar for a job's current download stage.
-  // `ids` names the wrap/fill/stage/pct elements to drive.
-  function renderProgress(job, ids) {
-    const wrap = document.getElementById(ids.wrap);
-    if (!wrap) return;
-    if (job.status !== 'running' || !job.stage) {
-      wrap.style.display = 'none';
+  // Renders one progress bar per download stage (video / audio / tagging) —
+  // job.operations only lists the stages this job actually runs (HOST-88: a
+  // single shared bar used to reset to 0% between stages, and even mid-stage
+  // when yt-dlp merged separate video+audio streams, so it looked like it hit
+  // 100% three times).
+  function renderOperations(job) {
+    const container = document.getElementById('dOperations');
+    if (!container) return;
+    const ops = job.operations || [];
+    if (!ops.length || (job.status !== 'running' && job.status !== 'error')) {
+      container.style.display = 'none';
+      container.innerHTML = '';
       return;
     }
-    wrap.style.display = '';
-    const fill = document.getElementById(ids.fill);
-    const stageEl = document.getElementById(ids.stage);
-    const pctEl = document.getElementById(ids.pct);
-    if (stageEl) stageEl.textContent = job.stage;
-    if (job.progress == null) {
-      if (fill) fill.classList.add('indeterminate');
-      if (fill) fill.style.width = '';
-      if (pctEl) pctEl.textContent = '';
-    } else {
-      if (fill) fill.classList.remove('indeterminate');
-      if (fill) fill.style.width = job.progress + '%';
-      if (pctEl) pctEl.textContent = job.progress.toFixed(1) + '%';
-    }
+    container.style.display = '';
+    container.innerHTML = ops.map(op => {
+      const indeterminate = op.progress == null;
+      const width = op.status === 'done' ? '100%' : (indeterminate ? '' : `${op.progress}%`);
+      const fillClasses = ['progress-fill'];
+      if (indeterminate && op.status !== 'done' && op.status !== 'error') fillClasses.push('indeterminate');
+      const pctText = op.status === 'done' ? '100%'
+        : op.status === 'error' ? 'failed'
+        : op.status === 'pending' ? 'queued'
+        : (indeterminate ? '' : op.progress.toFixed(1) + '%');
+      return `
+        <div class="progress-wrap op-${op.status}">
+          <div class="progress-track"><div class="${fillClasses.join(' ')}" style="width:${width}"></div></div>
+          <div class="progress-label">
+            <span>${esc(op.label)}</span>
+            <span>${pctText}</span>
+          </div>
+        </div>
+      `;
+    }).join('');
   }
 
   // ── Job list (sidebar) ───────────────────────

@@ -135,6 +135,19 @@ def download_audio(url: str, output_dir: str, log_callback=None, progress_callba
 #   [download]  42.7% of   10.00MiB at    1.23MiB/s ETA 00:05
 _PROGRESS_RE = re.compile(r"\[download\]\s+(\d{1,3}(?:\.\d+)?)%")
 
+# yt-dlp announces the format selection up front, e.g.:
+#   [info] <id>: Downloading 1 format(s): 137+140
+# "137+140" means one output made of 2 separately-downloaded streams (video +
+# audio) that get merged — i.e. 2 sequential "[download] ...%" sweeps for what
+# is, from the caller's point of view, a single download. Count the '+'-joined
+# ids so multi-stream downloads can be normalized into one smooth 0-100 sweep
+# instead of resetting to 0% partway through.
+_FORMAT_SPEC_RE = re.compile(r"Downloading \d+ format\(s\):\s*(\S+)")
+
+# A new "[download] Destination: ..." (or "already been downloaded") line marks
+# the start of the next stream within a multi-stream download.
+_NEW_STREAM_RE = re.compile(r"^\[download\] (?:Destination:|.+ has already been downloaded)")
+
 
 def _run_yt_dlp(cmd: list, output_dir: str, ext_filter: str, log_callback=None, progress_callback=None) -> Optional[str]:
     start_time = time.time()
@@ -150,6 +163,11 @@ def _run_yt_dlp(cmd: list, output_dir: str, ext_filter: str, log_callback=None, 
     last_printed_path: Optional[str] = None
     captured_lines: list = []
 
+    # Multi-stream bookkeeping (see _FORMAT_SPEC_RE above).
+    total_streams = 1
+    streams_done = 0
+    seen_stream_start = False
+
     for line in process.stdout:
         line = line.rstrip()
         captured_lines.append(line)
@@ -158,11 +176,22 @@ def _run_yt_dlp(cmd: list, output_dir: str, ext_filter: str, log_callback=None, 
         else:
             print(line, flush=True)
 
+        spec_match = _FORMAT_SPEC_RE.search(line)
+        if spec_match:
+            total_streams = max(1, spec_match.group(1).count("+") + 1)
+
+        if _NEW_STREAM_RE.match(line):
+            if seen_stream_start:
+                streams_done += 1
+            seen_stream_start = True
+
         if progress_callback:
             match = _PROGRESS_RE.search(line)
             if match:
                 try:
-                    progress_callback(float(match.group(1)))
+                    stream_pct = float(match.group(1))
+                    overall_pct = (streams_done * 100 + stream_pct) / total_streams
+                    progress_callback(min(overall_pct, 100.0))
                 except ValueError:
                     pass
 

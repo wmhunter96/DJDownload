@@ -131,9 +131,25 @@ def post_settings(req: UpdateSettingsRequest):
 # Routes — jobs
 # ---------------------------------------------------------------------------
 
+def _initial_operations(settings: dict) -> List[dict]:
+    """Build this job's operation list (one entry per progress bar) from current settings.
+
+    Only includes stages that will actually run — e.g. a video-only job (audio
+    disabled) has no "Tagging" bar, since tagging only happens for the audio path.
+    """
+    operations = []
+    if settings["video"]["enabled"]:
+        operations.append({"key": "video", "label": "Video", "status": "pending", "progress": None})
+    if settings["audio"]["enabled"]:
+        operations.append({"key": "audio", "label": "Audio", "status": "pending", "progress": None})
+        operations.append({"key": "tagging", "label": "Tagging", "status": "pending", "progress": None})
+    return operations
+
+
 @app.post("/api/jobs")
 async def submit_job(req: SubmitJobRequest, background_tasks: BackgroundTasks):
     job_id = str(uuid.uuid4())
+    settings = load_settings()
     job = {
         "id": job_id,
         "url": req.url,
@@ -149,6 +165,7 @@ async def submit_job(req: SubmitJobRequest, background_tasks: BackgroundTasks):
         "artist": None,         # resolved artist: override, or settings custom name, or uploader
         "stage": None,          # human-readable current step, e.g. "Downloading audio"
         "progress": None,       # 0-100 percent for the current stage, or None if indeterminate
+        "operations": _initial_operations(settings),  # one entry per progress bar (video/audio/tagging)
     }
     jobs[job_id] = job
     background_tasks.add_task(_run_job, job_id)
@@ -314,13 +331,35 @@ def _remember_dj(artist: str) -> None:
 async def _run_job(job_id: str):
     job = jobs[job_id]
     job["status"] = "running"
+    ops_by_key = {op["key"]: op for op in job["operations"]}
 
     def log(msg: str):
         ts = datetime.utcnow().strftime("%H:%M:%S")
         job["logs"].append(f"[{ts}] {msg}")
 
-    def progress_cb(percent: float):
-        job["progress"] = percent
+    def start_op(key: str, indeterminate: bool = False):
+        """Mark an operation's bar as running. `indeterminate` for steps with no % feed (e.g. tagging)."""
+        op = ops_by_key.get(key)
+        if op:
+            op["status"] = "running"
+            op["progress"] = None if indeterminate else 0
+
+    def finish_op(key: str, status: str = "done"):
+        op = ops_by_key.get(key)
+        if op:
+            op["status"] = status
+            if status == "done" and op["progress"] is not None:
+                op["progress"] = 100
+
+    def make_progress_cb(key: str):
+        """Progress callback for operation `key` — updates both its own bar and the
+        legacy job.progress mirror (still used by the compact job-list card)."""
+        def cb(percent: float):
+            job["progress"] = percent
+            op = ops_by_key.get(key)
+            if op:
+                op["progress"] = percent
+        return cb
 
     settings = load_settings()
 
@@ -355,16 +394,17 @@ async def _run_job(job_id: str):
         # 3. Download video
         if settings["video"]["enabled"]:
             job["stage"] = "Downloading video"
-            job["progress"] = 0
+            start_op("video")
             log("Starting video download...")
             video_path = await _run_with_forbidden_retry(
                 download_video,
                 job["url"],
                 settings["video"]["output_dir"],
                 log,
-                progress_cb,
+                make_progress_cb("video"),
                 log=log,
             )
+            finish_op("video")
             if video_path:
                 log(f"Video saved: {video_path}")
             else:
@@ -373,24 +413,26 @@ async def _run_job(job_id: str):
         # 4. Download audio
         if settings["audio"]["enabled"]:
             job["stage"] = "Downloading audio"
-            job["progress"] = 0
+            start_op("audio")
             log("Starting audio download...")
             audio_path = await _run_with_forbidden_retry(
                 download_audio,
                 job["url"],
                 settings["audio"]["output_dir"],
                 log,
-                progress_cb,
+                make_progress_cb("audio"),
                 log=log,
             )
             if audio_path:
                 log(f"Audio saved: {audio_path}")
+                finish_op("audio")
             else:
+                finish_op("audio", "error")
                 raise RuntimeError("Audio download failed — MP3 path not found.")
 
             # 5. Tag MP3
             job["stage"] = "Tagging"
-            job["progress"] = None
+            start_op("tagging", indeterminate=True)
             log("Tagging MP3...")
             final_path = await asyncio.to_thread(
                 tag_mp3,
@@ -400,6 +442,7 @@ async def _run_job(job_id: str):
                 title,   # album = title
                 youtube_id=youtube_id,
             )
+            finish_op("tagging")
             log(f"✅ Tagged MP3: {final_path}")
             job["result"]["audio_path"] = final_path
 
@@ -413,6 +456,11 @@ async def _run_job(job_id: str):
     except Exception as exc:
         job["status"] = "error"
         log(f"❌ Error: {exc}")
+        # Whatever operation was in flight when we failed didn't finish — mark it,
+        # leaving its bar in place rather than resetting it (helps show where it broke).
+        for op in job["operations"]:
+            if op["status"] == "running":
+                op["status"] = "error"
 
     finally:
         job["stage"] = None
