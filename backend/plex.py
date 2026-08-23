@@ -103,14 +103,19 @@ def _build_file_index(server_url: str, token: str, section_key: str) -> Dict[str
     data = _get_json(url, token)
     index: Dict[str, str] = {}
     for track in data.get("MediaContainer", {}).get("Metadata", []):
-        rating_key = track.get("ratingKey")
-        if not rating_key:
+        # Link to the *album*, not the bare track: each DJDownload set is
+        # tagged as its own single-track "live album" (see tagging.py), and
+        # Plex Web has no standalone details page for an individual track —
+        # deep-linking straight to one shows "Missing details... this item
+        # is lacking a details page" instead of a player.
+        album_rating_key = track.get("parentRatingKey") or track.get("ratingKey")
+        if not album_rating_key:
             continue
         for media in track.get("Media", []):
             for part in media.get("Part", []):
                 path = part.get("file")
                 if path:
-                    index[os.path.basename(path)] = rating_key
+                    index[os.path.basename(path)] = album_rating_key
     return index
 
 
@@ -225,23 +230,32 @@ def test_connection(
             continue
 
         label = f'Index "{section["title"]}"'
+        # section_title (+ matched, once known) rides along on each step so
+        # the Settings page can auto-fill Library Section with whichever
+        # library actually matched, instead of making the user retype the
+        # name it just showed them.
+        step = {"label": label, "section_title": section["title"]}
         if not local_filenames:
-            steps.append({"label": label, "ok": True, "detail": f"Indexed {len(file_index)} track(s). No local files to check against yet."})
+            step.update(ok=True, detail=f"Indexed {len(file_index)} track(s). No local files to check against yet.")
+            steps.append(step)
             continue
 
         matched = sum(1 for f in local_filenames if f in file_index)
         total = len(local_filenames)
+        step["matched"] = matched
+        step["total"] = total
         if matched == total:
-            steps.append({"label": label, "ok": True, "detail": f"Indexed {len(file_index)} track(s) — all {total} local file(s) matched."})
+            step.update(ok=True, detail=f"Indexed {len(file_index)} track(s) — all {total} local file(s) matched.")
         elif matched == 0:
             sample_local = local_filenames[0]
             sample_plex = next(iter(file_index), None)
             detail = f'Indexed {len(file_index)} track(s), but 0 of {total} local file(s) matched. e.g. local file "{sample_local}"'
             detail += f' vs. a Plex file like "{sample_plex}"' if sample_plex else " — this library's index is empty"
             detail += ". This library isn't scanning DJDownload's audio output folder."
-            steps.append({"label": label, "ok": False, "detail": detail})
+            step.update(ok=False, detail=detail)
         else:
-            steps.append({"label": label, "ok": True, "detail": f"Indexed {len(file_index)} track(s) — {matched} of {total} local file(s) matched (rest may still need a Plex scan)."})
+            step.update(ok=True, detail=f"Indexed {len(file_index)} track(s) — {matched} of {total} local file(s) matched (rest may still need a Plex scan).")
+        steps.append(step)
 
     return {"ok": all(s["ok"] for s in steps), "steps": steps}
 

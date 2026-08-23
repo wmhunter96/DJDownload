@@ -1366,6 +1366,17 @@
       });
       const data = await res.json();
       results.innerHTML = (data.steps || []).map(plexTestStepHTML).join('');
+
+      // Auto-fill Library Section with whichever library actually matched,
+      // so finding the right one doesn't also mean retyping it by hand.
+      const sectionField = document.getElementById('plexSectionName');
+      const best = (data.steps || [])
+        .filter(s => s.section_title && s.matched > 0)
+        .sort((a, b) => b.matched - a.matched)[0];
+      if (best && !sectionField.value.trim()) {
+        sectionField.value = best.section_title;
+        results.innerHTML += `<div class="plex-test-step ok"><span class="icon">✓</span><div><div class="label">Library Section filled in</div><div class="detail">Set to "${esc(best.section_title)}" — click Save Settings below to apply it.</div></div></div>`;
+      }
     } catch (e) {
       results.innerHTML = plexTestStepHTML({ ok: false, label: 'Request failed', detail: String(e) });
     } finally {
