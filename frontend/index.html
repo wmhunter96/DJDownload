@@ -883,7 +883,7 @@
             <tbody id="analyticsTbody"></tbody>
           </table>
           <div class="empty-state" id="analyticsEmpty" style="height:200px;display:none;">
-            <div class="empty-state-icon">📊</div>
+            <div class="empty-state-icon" id="analyticsEmptyIcon">📊</div>
             <span id="analyticsEmptyText">No sets in the library yet.</span>
           </div>
         </div>
@@ -1668,6 +1668,15 @@
   }
 
   async function loadAnalytics() {
+    // Scanning ID3 tags off every file in the library isn't instant, so
+    // show a loading state up front instead of leaving the page looking
+    // blank/stuck for however long that first scan takes.
+    document.getElementById('analyticsStats').innerHTML = '';
+    document.getElementById('analyticsTbody').innerHTML = '';
+    document.getElementById('analyticsEmptyIcon').textContent = '⏳';
+    document.getElementById('analyticsEmptyText').textContent = 'Loading…';
+    document.getElementById('analyticsEmpty').style.display = 'flex';
+
     try {
       const res = await fetch(`${API}/api/analytics`);
       const data = await res.json();
@@ -1678,6 +1687,7 @@
       analyticsData = [];
       document.getElementById('analyticsStats').innerHTML = '';
       document.getElementById('analyticsTbody').innerHTML = '';
+      document.getElementById('analyticsEmptyIcon').textContent = '⚠';
       document.getElementById('analyticsEmptyText').textContent = 'Failed to load analytics: ' + e;
       document.getElementById('analyticsEmpty').style.display = 'flex';
     }
@@ -1758,6 +1768,7 @@
     const empty = document.getElementById('analyticsEmpty');
     if (!analyticsData.length) {
       tbody.innerHTML = '';
+      document.getElementById('analyticsEmptyIcon').textContent = '📊';
       document.getElementById('analyticsEmptyText').textContent = 'No sets in the library yet.';
       empty.style.display = 'flex';
       return;
