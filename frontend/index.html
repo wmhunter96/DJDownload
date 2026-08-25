@@ -906,6 +906,11 @@
         <div id="analyticsFilesGridWrap" style="flex:1;overflow-y:auto;">
           <div class="file-grid" id="analyticsFilesGrid"></div>
         </div>
+        <div style="display:flex;justify-content:center;">
+          <button class="btn-primary" id="analyticsSearchYoutubeBtn" style="width:auto;padding:9px 20px;" onclick="searchYoutubeForArtist(currentFilesArtist)">
+            🔍&nbsp; Search YouTube
+          </button>
+        </div>
       </div>
 
     </div>
@@ -1656,6 +1661,25 @@
     }
   }
 
+  // Jumps to the Discover tab, pre-selects the given DJ, and kicks off the
+  // same search as clicking "Search YouTube" there. Used by the Analytics
+  // drill-down's "Search YouTube" button.
+  async function searchYoutubeForArtist(artist) {
+    if (!artist) return;
+    document.querySelectorAll('nav button').forEach(b => b.classList.remove('active'));
+    document.querySelector('[data-page="discover"]').classList.add('active');
+    document.querySelectorAll('.page').forEach(p => p.classList.remove('visible'));
+    document.getElementById('page-discover').classList.add('visible');
+
+    await loadDiscoverDjs();
+    selectDj(artist);
+    if (selectedDj) {
+      runDiscoverySearch();
+    } else {
+      discoveryEmptyMessage(`"${artist}" isn't in the Discover DJ list yet — try "Scan Audio Library" first.`);
+    }
+  }
+
   async function downloadDiscoveryCandidate(url, artist, btnEl) {
     btnEl.disabled = true;
     btnEl.textContent = '⏳ Queuing...';
@@ -1864,7 +1888,10 @@
   updateAnalyticsSortButtons();
 
   // ── Analytics: per-DJ file grid (drill-down) ─
+  let currentFilesArtist = null;   // artist behind the currently open drill-down view
+
   async function openArtistFiles(artist) {
+    currentFilesArtist = artist;
     document.getElementById('analyticsLeaderboardView').style.display = 'none';
     const view = document.getElementById('analyticsFilesView');
     view.style.display = 'flex';
