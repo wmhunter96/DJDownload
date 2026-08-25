@@ -835,6 +835,14 @@
         <div class="progress-label"><span>Searching YouTube...</span><span></span></div>
       </div>
 
+      <div id="discoverResultsSort" style="display:none;align-items:center;justify-content:space-between;gap:10px;">
+        <span style="font-size:11px;color:var(--muted);" id="discoverResultsCount"></span>
+        <div class="sort-buttons">
+          <button type="button" class="sort-btn" id="resultsSortByNameBtn" onclick="setResultsSortField('name')">Aa<span class="sort-arrow" id="resultsSortArrowName"></span></button>
+          <button type="button" class="sort-btn" id="resultsSortByViewsBtn" onclick="setResultsSortField('views')">123<span class="sort-arrow" id="resultsSortArrowViews"></span></button>
+        </div>
+      </div>
+
       <div id="discoverResults" style="display:flex;flex-direction:column;gap:10px;flex:1;overflow-y:auto;">
         <div class="empty-state" id="discoverEmpty" style="height:100%;min-height:260px;">
           <div class="empty-state-icon">🔎</div>
@@ -1536,8 +1544,44 @@
   updateSortButtons();
 
   function discoveryEmptyMessage(message) {
+    discoveryResults = [];
+    document.getElementById('discoverResultsSort').style.display = 'none';
     document.getElementById('discoverEmptyText').textContent = message;
     document.getElementById('discoverEmpty').style.display = 'flex';
+  }
+
+  // ── Search results: sort ──────────────────────
+  let discoveryResults = [];        // raw results from the last search, kept around for re-sorting
+  let resultsSortField = 'views';   // 'name' | 'views'
+  let resultsSortDir = 'desc';      // "Most Views" first feels like the natural default
+
+  function setResultsSortField(field) {
+    if (resultsSortField === field) {
+      resultsSortDir = resultsSortDir === 'asc' ? 'desc' : 'asc';
+    } else {
+      resultsSortField = field;
+      resultsSortDir = field === 'views' ? 'desc' : 'asc';
+    }
+    renderDiscoveryResults(discoveryResults);
+  }
+
+  function updateResultsSortButtons() {
+    const nameActive = resultsSortField === 'name';
+    document.getElementById('resultsSortByNameBtn').classList.toggle('active', nameActive);
+    document.getElementById('resultsSortByViewsBtn').classList.toggle('active', !nameActive);
+    document.getElementById('resultsSortArrowName').textContent = nameActive ? (resultsSortDir === 'asc' ? '▲' : '▼') : '';
+    document.getElementById('resultsSortArrowViews').textContent = !nameActive ? (resultsSortDir === 'asc' ? '▲' : '▼') : '';
+  }
+
+  function sortedResults(list) {
+    const sorted = [...list];
+    const dirMul = resultsSortDir === 'asc' ? 1 : -1;
+    if (resultsSortField === 'views') {
+      sorted.sort((a, b) => dirMul * (a.views - b.views) || a.title.localeCompare(b.title));
+    } else {
+      sorted.sort((a, b) => dirMul * a.title.localeCompare(b.title));
+    }
+    return sorted;
   }
 
   function discoveryCardHTML(item) {
@@ -1554,6 +1598,7 @@
             <div class="job-meta">
               <span>${esc(item.channel)}</span>
               <span>${formatDuration(item.duration_s)}</span>
+              <span title="${item.views.toLocaleString()} views">👁 ${formatViews(item.views)}</span>
             </div>
           </div>
         </div>
@@ -1566,6 +1611,7 @@
   }
 
   function renderDiscoveryResults(results) {
+    discoveryResults = results;
     const container = document.getElementById('discoverResults');
     container.querySelectorAll('.job-card').forEach(c => c.remove());
     if (!results.length) {
@@ -1573,7 +1619,10 @@
       return;
     }
     document.getElementById('discoverEmpty').style.display = 'none';
-    container.insertAdjacentHTML('beforeend', results.map(discoveryCardHTML).join(''));
+    document.getElementById('discoverResultsSort').style.display = 'flex';
+    document.getElementById('discoverResultsCount').textContent = `${results.length} result${results.length === 1 ? '' : 's'}`;
+    updateResultsSortButtons();
+    container.insertAdjacentHTML('beforeend', sortedResults(results).map(discoveryCardHTML).join(''));
   }
 
   async function runDiscoverySearch() {
@@ -1584,6 +1633,7 @@
     document.getElementById('discoverProgressWrap').style.display = '';
     document.getElementById('discoverEmpty').style.display = 'none';
     document.getElementById('discoverResults').querySelectorAll('.job-card').forEach(c => c.remove());
+    document.getElementById('discoverResultsSort').style.display = 'none';
 
     try {
       const res = await fetch(`${API}/api/discovery/search`, {
@@ -1633,9 +1683,12 @@
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ video_id: videoId }),
       });
+      discoveryResults = discoveryResults.filter(r => r.video_id !== videoId);
       if (card) card.remove();
-      if (!document.getElementById('discoverResults').querySelectorAll('.job-card').length) {
+      if (!discoveryResults.length) {
         discoveryEmptyMessage('No missing sets found — your library is up to date.');
+      } else {
+        document.getElementById('discoverResultsCount').textContent = `${discoveryResults.length} result${discoveryResults.length === 1 ? '' : 's'}`;
       }
     } catch (e) {
       btnEl.disabled = false;
@@ -1665,6 +1718,18 @@
 
   function formatDate(iso) {
     return iso ? new Date(iso).toLocaleDateString() : '—';
+  }
+
+  function formatViews(n) {
+    if (!n) return '0 views';
+    const units = [[1e9, 'B'], [1e6, 'M'], [1e3, 'K']];
+    for (const [threshold, suffix] of units) {
+      if (n >= threshold) {
+        const v = n / threshold;
+        return `${v.toFixed(v < 10 ? 1 : 0)}${suffix} views`;
+      }
+    }
+    return `${n} views`;
   }
 
   async function loadAnalytics() {

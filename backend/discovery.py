@@ -27,6 +27,7 @@ class SearchResult(TypedDict):
     duration_s: int
     thumbnail: str
     url: str
+    views: int
 
 
 class YouTubeApiError(RuntimeError):
@@ -58,7 +59,7 @@ def _fetch_video_details(api_key: str, video_ids: List[str]) -> List[SearchResul
     params = {
         "key": api_key,
         "id": ",".join(video_ids),
-        "part": "snippet,contentDetails",
+        "part": "snippet,contentDetails,statistics",
     }
     data = _get(f"{API_BASE}/videos", params)
 
@@ -66,6 +67,7 @@ def _fetch_video_details(api_key: str, video_ids: List[str]) -> List[SearchResul
     for item in data.get("items", []):
         snippet = item.get("snippet", {})
         content_details = item.get("contentDetails", {})
+        statistics = item.get("statistics", {})
         duration = content_details.get("duration")
         if not duration:
             continue
@@ -76,6 +78,12 @@ def _fetch_video_details(api_key: str, video_ids: List[str]) -> List[SearchResul
             or thumbnails.get("default", {}).get("url")
             or ""
         )
+        # viewCount is a string in the API response, and absent entirely when
+        # the uploader has hidden view counts on the video.
+        try:
+            views = int(statistics.get("viewCount", 0))
+        except (TypeError, ValueError):
+            views = 0
         results.append({
             "video_id": video_id,
             "title": snippet.get("title", "Untitled"),
@@ -83,6 +91,7 @@ def _fetch_video_details(api_key: str, video_ids: List[str]) -> List[SearchResul
             "duration_s": parse_iso8601_duration(duration),
             "thumbnail": thumbnail,
             "url": f"https://www.youtube.com/watch?v={video_id}",
+            "views": views,
         })
     return results
 
