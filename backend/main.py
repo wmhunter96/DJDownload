@@ -75,6 +75,8 @@ jobs: Dict[str, dict] = {}
 class SubmitJobRequest(BaseModel):
     url: str
     artist_override: Optional[str] = None   # if blank, the YouTube channel name is used
+    video_override: Optional[bool] = None   # force video on/off for this job only (e.g. "Song" mode);
+                                             # None = defer to the global video.enabled setting
 
 
 class UpdateSettingsRequest(BaseModel):
@@ -158,16 +160,19 @@ def post_settings_plex_test(req: PlexTestRequest):
 # Routes — jobs
 # ---------------------------------------------------------------------------
 
-def _initial_operations(settings: dict) -> List[dict]:
+def _initial_operations(settings: dict, video_override: Optional[bool] = None) -> List[dict]:
     """Build this job's operation list (one entry per progress bar) from current settings.
 
     Only includes stages that will actually run — e.g. a video-only job (audio
     disabled) has one bar, not two. Tagging isn't included: it's a near-instant
     ID3 write with no meaningful progress of its own, so it doesn't get a bar —
-    it just happens after the "Audio" bar completes.
+    it just happens after the "Audio" bar completes. `video_override` lets a
+    single job force video on/off regardless of the global setting (used by
+    the frontend's "Song" mode, which downloads audio only).
     """
+    video_enabled = settings["video"]["enabled"] if video_override is None else video_override
     operations = []
-    if settings["video"]["enabled"]:
+    if video_enabled:
         operations.append({"key": "video", "label": "Video", "status": "pending", "progress": None})
     if settings["audio"]["enabled"]:
         operations.append({"key": "audio", "label": "Audio", "status": "pending", "progress": None})
@@ -182,6 +187,7 @@ async def submit_job(req: SubmitJobRequest, background_tasks: BackgroundTasks):
         "id": job_id,
         "url": req.url,
         "artist_override": req.artist_override,
+        "video_override": req.video_override,  # forces video on/off for this job only ("Song" mode)
         "status": "queued",    # queued | running | done | error
         "created_at": datetime.utcnow().isoformat(),
         "finished_at": None,
@@ -193,7 +199,7 @@ async def submit_job(req: SubmitJobRequest, background_tasks: BackgroundTasks):
         "artist": None,         # resolved artist: override, or uploader (channel name)
         "stage": None,          # human-readable current step, e.g. "Downloading audio"
         "progress": None,       # 0-100 percent for the current stage, or None if indeterminate
-        "operations": _initial_operations(settings),  # one entry per progress bar (video/audio/tagging)
+        "operations": _initial_operations(settings, req.video_override),  # one entry per progress bar (video/audio/tagging)
     }
     jobs[job_id] = job
     background_tasks.add_task(_run_job, job_id)
@@ -483,6 +489,8 @@ async def _run_job(job_id: str):
         return cb
 
     settings = load_settings()
+    video_override = job.get("video_override")
+    video_enabled = settings["video"]["enabled"] if video_override is None else video_override
 
     try:
         # 1. Fetch metadata
@@ -509,7 +517,7 @@ async def _run_job(job_id: str):
         video_path = None
 
         # 3. Download video
-        if settings["video"]["enabled"]:
+        if video_enabled:
             job["stage"] = "Downloading video"
             start_op("video")
             log("Starting video download...")

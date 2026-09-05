@@ -337,6 +337,32 @@
   .sort-btn.active { color: var(--accent); border-color: var(--accent); background: rgba(255,0,0,0.06); }
   .sort-arrow { font-size: 10px; width: 8px; display: inline-block; }
 
+  /* ── Mix/Song mode switch (above New Download) ── */
+  .mode-toggle {
+    display: flex;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    overflow: hidden;
+  }
+  .mode-btn {
+    flex: 1;
+    background: transparent;
+    border: none;
+    color: var(--muted);
+    font-family: var(--sans);
+    font-size: 12px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    padding: 10px 0;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .mode-btn:not(:first-child) { border-left: 1px solid var(--border); }
+  .mode-btn:hover { color: var(--text); }
+  .mode-btn.active { color: var(--accent); background: rgba(255,0,0,0.08); }
+  .mode-sub { font-size: 11px; color: var(--muted); margin-top: 6px; }
+
   /* Toggle row */
   .toggle-row {
     display: flex;
@@ -733,6 +759,15 @@
   ═══════════════════════════════════════════ -->
   <div class="panel">
 
+    <!-- Mix/Song mode switch -->
+    <div>
+      <div class="mode-toggle">
+        <button type="button" class="mode-btn active" id="modeMixBtn" onclick="setDownloadMode('mix')">Mix</button>
+        <button type="button" class="mode-btn" id="modeSongBtn" onclick="setDownloadMode('song')">Song</button>
+      </div>
+      <div class="mode-sub" id="modeSub" style="display:none;">Song mode downloads audio only — video is disabled for this download.</div>
+    </div>
+
     <!-- Submit form -->
     <div>
       <div class="section-label">New Download</div>
@@ -1019,6 +1054,19 @@
   let pollTimer = null;
   let plexConfigured = false;
 
+  // ── Mix/Song mode ────────────────────────────
+  // "Mix" is the default full workflow (video + audio, per Settings). "Song"
+  // is the same submit-a-URL workflow but forces video off for that job —
+  // it never touches the global Video setting on the Settings page.
+  let downloadMode = 'mix';   // 'mix' | 'song'
+
+  function setDownloadMode(mode) {
+    downloadMode = mode;
+    document.getElementById('modeMixBtn').classList.toggle('active', mode === 'mix');
+    document.getElementById('modeSongBtn').classList.toggle('active', mode === 'song');
+    document.getElementById('modeSub').style.display = mode === 'song' ? '' : 'none';
+  }
+
   async function checkPlexConfigured() {
     try {
       const res = await fetch(`${API}/api/settings`);
@@ -1085,7 +1133,7 @@
       const res = await fetch(`${API}/api/jobs`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url, artist_override: artist || null }),
+        body: JSON.stringify({ url, artist_override: artist || null, video_override: downloadMode === 'song' ? false : null }),
       });
       const data = await res.json();
       document.getElementById('urlInput').value = '';
