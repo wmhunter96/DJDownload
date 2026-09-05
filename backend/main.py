@@ -22,6 +22,7 @@ Endpoints:
 """
 
 import asyncio
+import re
 import uuid
 from datetime import datetime
 from typing import Dict, List, Optional
@@ -75,8 +76,8 @@ jobs: Dict[str, dict] = {}
 class SubmitJobRequest(BaseModel):
     url: str
     artist_override: Optional[str] = None   # if blank, the YouTube channel name is used
-    video_override: Optional[bool] = None   # force video on/off for this job only (e.g. "Song" mode);
-                                             # None = defer to the global video.enabled setting
+    mode: str = "mix"   # "mix" (default, per Settings) or "song" (video forced off, audio
+                         # saved to songs.output_dir/<artist>/ instead of audio.output_dir)
 
 
 class UpdateSettingsRequest(BaseModel):
@@ -84,6 +85,7 @@ class UpdateSettingsRequest(BaseModel):
     audio_output_dir: str
     video_enabled: bool
     video_output_dir: str
+    songs_output_dir: str = ""
     youtube_api_key: str = ""
     plex_server_url: str = ""
     plex_token: str = ""
@@ -125,6 +127,9 @@ def post_settings(req: UpdateSettingsRequest):
             "enabled": req.video_enabled,
             "output_dir": req.video_output_dir,
         },
+        "songs": {
+            "output_dir": req.songs_output_dir,
+        },
         "discovery": {
             "youtube_api_key": req.youtube_api_key,
             # dismissed_ids/known_djs/dj_counts are server-managed (see the
@@ -160,19 +165,30 @@ def post_settings_plex_test(req: PlexTestRequest):
 # Routes — jobs
 # ---------------------------------------------------------------------------
 
-def _initial_operations(settings: dict, video_override: Optional[bool] = None) -> List[dict]:
+def _video_enabled_for(settings: dict, mode: str) -> bool:
+    """"Song" mode always forces video off, regardless of the global setting."""
+    return False if mode == "song" else settings["video"]["enabled"]
+
+
+_INVALID_FOLDER_CHARS = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
+
+
+def _sanitize_folder_name(name: str) -> str:
+    """Make `name` safe to use as a single path segment (Linux + SMB/Windows shares)."""
+    cleaned = _INVALID_FOLDER_CHARS.sub("", name).strip().strip(".")
+    return cleaned or "Unknown Artist"
+
+
+def _initial_operations(settings: dict, mode: str = "mix") -> List[dict]:
     """Build this job's operation list (one entry per progress bar) from current settings.
 
     Only includes stages that will actually run — e.g. a video-only job (audio
     disabled) has one bar, not two. Tagging isn't included: it's a near-instant
     ID3 write with no meaningful progress of its own, so it doesn't get a bar —
-    it just happens after the "Audio" bar completes. `video_override` lets a
-    single job force video on/off regardless of the global setting (used by
-    the frontend's "Song" mode, which downloads audio only).
+    it just happens after the "Audio" bar completes.
     """
-    video_enabled = settings["video"]["enabled"] if video_override is None else video_override
     operations = []
-    if video_enabled:
+    if _video_enabled_for(settings, mode):
         operations.append({"key": "video", "label": "Video", "status": "pending", "progress": None})
     if settings["audio"]["enabled"]:
         operations.append({"key": "audio", "label": "Audio", "status": "pending", "progress": None})
@@ -187,7 +203,7 @@ async def submit_job(req: SubmitJobRequest, background_tasks: BackgroundTasks):
         "id": job_id,
         "url": req.url,
         "artist_override": req.artist_override,
-        "video_override": req.video_override,  # forces video on/off for this job only ("Song" mode)
+        "mode": req.mode,        # "mix" or "song" — see _video_enabled_for / _run_job
         "status": "queued",    # queued | running | done | error
         "created_at": datetime.utcnow().isoformat(),
         "finished_at": None,
@@ -199,7 +215,7 @@ async def submit_job(req: SubmitJobRequest, background_tasks: BackgroundTasks):
         "artist": None,         # resolved artist: override, or uploader (channel name)
         "stage": None,          # human-readable current step, e.g. "Downloading audio"
         "progress": None,       # 0-100 percent for the current stage, or None if indeterminate
-        "operations": _initial_operations(settings, req.video_override),  # one entry per progress bar (video/audio/tagging)
+        "operations": _initial_operations(settings, req.mode),  # one entry per progress bar (video/audio/tagging)
     }
     jobs[job_id] = job
     background_tasks.add_task(_run_job, job_id)
@@ -489,8 +505,8 @@ async def _run_job(job_id: str):
         return cb
 
     settings = load_settings()
-    video_override = job.get("video_override")
-    video_enabled = settings["video"]["enabled"] if video_override is None else video_override
+    mode = job.get("mode", "mix")
+    video_enabled = _video_enabled_for(settings, mode)
 
     try:
         # 1. Fetch metadata
@@ -537,13 +553,23 @@ async def _run_job(job_id: str):
 
         # 4. Download audio
         if settings["audio"]["enabled"]:
+            if mode == "song":
+                # Song mode keeps individual tracks out of the curated Sets
+                # library — each goes into its own artist/channel folder
+                # under songs.output_dir instead, e.g. songs_dir/bigbooty/.
+                audio_output_dir = os.path.join(
+                    settings["songs"]["output_dir"], _sanitize_folder_name(artist)
+                )
+            else:
+                audio_output_dir = settings["audio"]["output_dir"]
+
             job["stage"] = "Downloading audio"
             start_op("audio")
             log("Starting audio download...")
             audio_path = await _run_with_forbidden_retry(
                 download_audio,
                 job["url"],
-                settings["audio"]["output_dir"],
+                audio_output_dir,
                 log,
                 make_progress_cb("audio"),
                 log=log,

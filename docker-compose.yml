@@ -11,6 +11,8 @@ services:
       # Map your actual audio/video destinations here
       - /mnt/user/Music/Sets/Youtube:/downloads/audio
       - /mnt/user/MusicVideos/Sets:/downloads/video
+      # "Song" mode base folder — per-artist folders are created here, separate from Audio above
+      - /mnt/user/Music:/downloads/songs
     environment:
       - CONFIG_PATH=/config/settings.yaml
       - YT_DLP_BIN=/usr/local/bin/yt-dlp

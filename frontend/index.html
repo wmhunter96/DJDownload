@@ -765,7 +765,7 @@
         <button type="button" class="mode-btn active" id="modeMixBtn" onclick="setDownloadMode('mix')">Mix</button>
         <button type="button" class="mode-btn" id="modeSongBtn" onclick="setDownloadMode('song')">Song</button>
       </div>
-      <div class="mode-sub" id="modeSub" style="display:none;">Song mode downloads audio only — video is disabled for this download.</div>
+      <div class="mode-sub" id="modeSub" style="display:none;">Song mode downloads audio only, saved to its own artist folder — see Songs in Settings.</div>
     </div>
 
     <!-- Submit form -->
@@ -991,6 +991,19 @@
         </div>
 
         <div class="settings-card" style="grid-column:1/-1;">
+          <h3>Songs</h3>
+          <div class="field">
+            <label>Output Directory</label>
+            <input type="text" id="songsDir" placeholder="/downloads/songs" />
+          </div>
+          <div class="toggle-sub">
+            Used by "Song" mode (the toggle above New Download). Each download gets its own
+            artist/channel folder here instead of joining the Audio library above —
+            e.g. this dir + "/bigbooty/track.mp3".
+          </div>
+        </div>
+
+        <div class="settings-card" style="grid-column:1/-1;">
           <h3>Discovery</h3>
           <div class="field">
             <label>YouTube Data API Key</label>
@@ -1133,7 +1146,7 @@
       const res = await fetch(`${API}/api/jobs`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url, artist_override: artist || null, video_override: downloadMode === 'song' ? false : null }),
+        body: JSON.stringify({ url, artist_override: artist || null, mode: downloadMode }),
       });
       const data = await res.json();
       document.getElementById('urlInput').value = '';
@@ -1360,6 +1373,7 @@
       document.getElementById('audioDir').value = s.audio?.output_dir ?? '';
       document.getElementById('videoEnabled').checked = s.video?.enabled ?? true;
       document.getElementById('videoDir').value = s.video?.output_dir ?? '';
+      document.getElementById('songsDir').value = s.songs?.output_dir ?? '';
       document.getElementById('youtubeApiKey').value = s.discovery?.youtube_api_key ?? '';
       document.getElementById('plexServerUrl').value = s.plex?.server_url ?? '';
       document.getElementById('plexToken').value = s.plex?.token ?? '';
@@ -1373,6 +1387,7 @@
       audio_output_dir: document.getElementById('audioDir').value,
       video_enabled: document.getElementById('videoEnabled').checked,
       video_output_dir: document.getElementById('videoDir').value,
+      songs_output_dir: document.getElementById('songsDir').value,
       youtube_api_key: document.getElementById('youtubeApiKey').value,
       plex_server_url: document.getElementById('plexServerUrl').value,
       plex_token: document.getElementById('plexToken').value,

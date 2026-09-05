@@ -6,6 +6,9 @@ video:
   enabled: true
   output_dir: /downloads/video
 
+songs:
+  output_dir: /downloads/songs  # base folder for "Song" mode — a folder per artist/channel is created here
+
 discovery:
   youtube_api_key: ""  # YouTube Data API v3 key, required for the Discover tab
   dismissed_ids: []    # video IDs dismissed from the review queue (managed by the app)

@@ -39,6 +39,14 @@ def _defaults() -> dict:
             "enabled": True,
             "output_dir": "/downloads/video",
         },
+        "songs": {
+            # Base directory for "Song" mode downloads (see the Mix/Song
+            # toggle on the Download page). A folder named after the
+            # resolved artist/channel is created under here for each song,
+            # e.g. output_dir/bigbooty/track.mp3 — kept separate from the
+            # audio.output_dir "Sets" library.
+            "output_dir": "/downloads/songs",
+        },
         "discovery": {
             "youtube_api_key": "",
             "dismissed_ids": [],   # video IDs the user has dismissed from the review queue
