@@ -3,6 +3,7 @@ downloader.py — yt-dlp wrapper for DJDownload.
 
 Responsibilities:
   - Fetch video metadata (title, uploader, thumbnail URL)
+  - Fetch playlist metadata (title, uploader, track list) for Album mode
   - Download video (best quality)
   - Download audio as MP3 with embedded thumbnail
   - Return the final MP3 path for tagging
@@ -70,6 +71,55 @@ def fetch_metadata(url: str) -> dict:
         "title": data.get("title", "Unknown Title").strip(),
         "uploader": data.get("uploader", data.get("channel", "Unknown Artist")).strip(),
         "thumbnail": data.get("thumbnail", ""),
+    }
+
+
+def fetch_playlist_metadata(url: str) -> dict:
+    """Return playlist title, uploader, thumbnail, and a flat list of track
+    entries ({id, title, url}) for a YouTube playlist URL — backs "Album" mode.
+
+    Uses --flat-playlist so this stays a single fast request regardless of
+    playlist size; per-track metadata (real title, thumbnail, etc.) isn't
+    fetched here — each track's own download step gets that for free.
+    """
+    result = subprocess.run(
+        [
+            YT_DLP,
+            *NETWORK_ARGS,
+            "--dump-single-json",
+            "--flat-playlist",
+            "--extractor-args", "youtube:player_client=default",
+            url,
+        ],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        _check_forbidden(result.stderr)
+        raise RuntimeError(f"yt-dlp playlist metadata fetch failed:\n{result.stderr}")
+
+    data = json.loads(result.stdout)
+
+    entries = []
+    for entry in data.get("entries") or []:
+        if not entry:
+            continue
+        video_id = entry.get("id")
+        if not video_id:
+            continue
+        entries.append({
+            "id": video_id,
+            "title": (entry.get("title") or "Unknown Title").strip(),
+            "url": f"https://www.youtube.com/watch?v={video_id}",
+        })
+
+    thumbnails = data.get("thumbnails") or []
+
+    return {
+        "title": (data.get("title") or "Unknown Album").strip(),
+        "uploader": (data.get("uploader") or data.get("channel") or "Unknown Artist").strip(),
+        "thumbnail": thumbnails[-1]["url"] if thumbnails else "",
+        "entries": entries,
     }
 
 

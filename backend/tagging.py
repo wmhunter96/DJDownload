@@ -12,14 +12,18 @@ Tags written:
            under "Various Artists"/the channel name instead of the artist
            the user provided)
   - TALB  (album)
-  - TXXX:RELEASETYPE = album;live  (Plex live album detection)
+  - TRCK  (track number — only set for Album-mode playlist tracks, so
+           players/Plex keep them in playlist order)
+  - TXXX:RELEASETYPE = album;live  (Plex live album detection — only for
+                       mix downloads; omitted for single songs and album
+                       tracks, which aren't live albums)
   - TXXX:YOUTUBE_ID  (source video ID — lets the missed-set finder dedupe
                        exactly instead of relying on fuzzy title matching)
 """
 
 from pathlib import Path
 from typing import Optional
-from mutagen.id3 import ID3, TIT2, TPE1, TPE2, TALB, TXXX, ID3NoHeaderError
+from mutagen.id3 import ID3, TIT2, TPE1, TPE2, TALB, TRCK, TXXX, ID3NoHeaderError
 
 
 def tag_mp3(
@@ -27,8 +31,9 @@ def tag_mp3(
     title: str,
     artist: str,
     album: str,
-    release_type: str = "album;live",
+    release_type: Optional[str] = "album;live",
     youtube_id: Optional[str] = None,
+    track_number: Optional[int] = None,
 ) -> str:
     """
     Tag the MP3 at `src` in-place using mutagen.
@@ -53,9 +58,17 @@ def tag_mp3(
         tags["TPE1"] = TPE1(encoding=3, text=artist)
         tags["TPE2"] = TPE2(encoding=3, text=artist)
         tags["TALB"] = TALB(encoding=3, text=album)
-        tags["TXXX:RELEASETYPE"] = TXXX(encoding=3, desc="RELEASETYPE", text=release_type)
+        if release_type:
+            tags["TXXX:RELEASETYPE"] = TXXX(encoding=3, desc="RELEASETYPE", text=release_type)
+        elif "TXXX:RELEASETYPE" in tags:
+            # Re-tagging a file that previously got the live-album marker
+            # (e.g. re-run in song mode) — remove the stale tag instead of
+            # leaving it in place.
+            del tags["TXXX:RELEASETYPE"]
         if youtube_id:
             tags["TXXX:YOUTUBE_ID"] = TXXX(encoding=3, desc="YOUTUBE_ID", text=youtube_id)
+        if track_number is not None:
+            tags["TRCK"] = TRCK(encoding=3, text=str(track_number))
 
         tags.save(str(src_path), v2_version=3)
 

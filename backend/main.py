@@ -35,6 +35,7 @@ from pydantic import BaseModel
 from backend.config import load_settings, save_settings
 from backend.downloader import (
     fetch_metadata,
+    fetch_playlist_metadata,
     download_audio,
     download_video,
     update_yt_dlp,
@@ -76,8 +77,11 @@ jobs: Dict[str, dict] = {}
 class SubmitJobRequest(BaseModel):
     url: str
     artist_override: Optional[str] = None   # if blank, the YouTube channel name is used
-    mode: str = "mix"   # "mix" (default, per Settings) or "song" (video forced off, audio
-                         # saved to songs.output_dir/<artist>/ instead of audio.output_dir)
+    mode: str = "mix"   # "mix" (default, per Settings), "song" (video forced off, audio
+                         # saved to songs.output_dir/<artist>/ instead of audio.output_dir),
+                         # or "album" (same as "song" but `url` is a playlist — every video
+                         # in it is downloaded as a track under
+                         # songs.output_dir/<artist>/<playlist title>/)
 
 
 class UpdateSettingsRequest(BaseModel):
@@ -166,8 +170,8 @@ def post_settings_plex_test(req: PlexTestRequest):
 # ---------------------------------------------------------------------------
 
 def _video_enabled_for(settings: dict, mode: str) -> bool:
-    """"Song" mode always forces video off, regardless of the global setting."""
-    return False if mode == "song" else settings["video"]["enabled"]
+    """"Song" and "Album" modes always force video off, regardless of the global setting."""
+    return False if mode in ("song", "album") else settings["video"]["enabled"]
 
 
 _INVALID_FOLDER_CHARS = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
@@ -471,10 +475,9 @@ def _remember_dj(artist: str) -> None:
     save_settings(settings)
 
 
-async def _run_job(job_id: str):
-    job = jobs[job_id]
-    job["status"] = "running"
-    ops_by_key = {op["key"]: op for op in job["operations"]}
+def _job_helpers(job: dict, ops_by_key: Dict[str, dict]):
+    """Shared log/progress-bar helpers used by both the single-video runner
+    (mix/song) and the album/playlist runner."""
 
     def log(msg: str):
         ts = datetime.utcnow().strftime("%H:%M:%S")
@@ -503,6 +506,22 @@ async def _run_job(job_id: str):
             if op:
                 op["progress"] = percent
         return cb
+
+    return log, start_op, finish_op, make_progress_cb
+
+
+async def _run_job(job_id: str):
+    job = jobs[job_id]
+    job["status"] = "running"
+    if job.get("mode") == "album":
+        await _run_album_job(job)
+    else:
+        await _run_single_job(job)
+
+
+async def _run_single_job(job: dict):
+    ops_by_key = {op["key"]: op for op in job["operations"]}
+    log, start_op, finish_op, make_progress_cb = _job_helpers(job, ops_by_key)
 
     settings = load_settings()
     mode = job.get("mode", "mix")
@@ -591,6 +610,9 @@ async def _run_job(job_id: str):
                 title,
                 artist,
                 title,   # album = title
+                # Single songs aren't live albums — only mixes get the
+                # Plex live-album marker.
+                release_type=None if mode == "song" else "album;live",
                 youtube_id=youtube_id,
             )
             log(f"✅ Tagged MP3: {final_path}")
@@ -608,6 +630,122 @@ async def _run_job(job_id: str):
         log(f"❌ Error: {exc}")
         # Whatever operation was in flight when we failed didn't finish — mark it,
         # leaving its bar in place rather than resetting it (helps show where it broke).
+        for op in job["operations"]:
+            if op["status"] == "running":
+                op["status"] = "error"
+
+    finally:
+        job["stage"] = None
+        job["progress"] = None
+        job["finished_at"] = datetime.utcnow().isoformat()
+
+
+async def _run_album_job(job: dict):
+    """"Album" mode — `job["url"]` is a playlist. Downloads and tags every
+    video in it as one track of an album, saved under
+    songs.output_dir/<artist>/<playlist title>/. Audio-only, like "song" mode
+    (see _video_enabled_for), but reports overall progress across all tracks
+    on a single "Audio" bar instead of resetting it per track.
+    """
+    ops_by_key = {op["key"]: op for op in job["operations"]}
+    log, start_op, finish_op, _make_progress_cb = _job_helpers(job, ops_by_key)
+
+    settings = load_settings()
+
+    try:
+        # 1. Fetch playlist metadata (track list, playlist title/uploader)
+        job["stage"] = "Fetching playlist metadata"
+        log(f"Fetching playlist metadata for: {job['url']}")
+        playlist = await _run_with_forbidden_retry(fetch_playlist_metadata, job["url"], log=log)
+        entries = playlist["entries"]
+        if not entries:
+            raise RuntimeError("Playlist has no videos.")
+
+        album_title = playlist["title"]
+        uploader = playlist["uploader"]
+        job["title"] = album_title
+        job["uploader"] = uploader
+        job["thumbnail"] = playlist.get("thumbnail") or None
+        log(f"Album:    {album_title} ({len(entries)} tracks)")
+        log(f"Uploader: {uploader}")
+
+        # 2. Resolve artist — same override-then-uploader rule as mix/song.
+        override = job.get("artist_override", "").strip() if job.get("artist_override") else ""
+        artist = override or uploader
+        job["artist"] = artist
+        log(f"Artist:   {artist}")
+
+        if not settings["audio"]["enabled"]:
+            raise RuntimeError('Audio downloads are disabled in Settings — Album mode has nothing to do.')
+
+        album_dir = os.path.join(
+            settings["songs"]["output_dir"],
+            _sanitize_folder_name(artist),
+            _sanitize_folder_name(album_title),
+        )
+
+        job["stage"] = "Downloading album"
+        start_op("audio")
+        total = len(entries)
+        track_paths = []
+
+        for index, entry in enumerate(entries):
+            track_number = index + 1
+            log(f"[{track_number}/{total}] {entry['title']}")
+
+            def track_progress_cb(percent: float, index=index, total=total):
+                overall = (index * 100 + percent) / total
+                job["progress"] = overall
+                op = ops_by_key.get("audio")
+                if op:
+                    op["progress"] = overall
+
+            try:
+                track_path = await _run_with_forbidden_retry(
+                    download_audio,
+                    entry["url"],
+                    album_dir,
+                    log,
+                    track_progress_cb,
+                    log=log,
+                )
+            except Exception as exc:
+                log(f"⚠ Track {track_number} failed to download: {exc}")
+                continue
+
+            if not track_path:
+                log(f"⚠ Track {track_number} failed — MP3 path not found.")
+                continue
+
+            final_path = await asyncio.to_thread(
+                tag_mp3,
+                track_path,
+                entry["title"],
+                artist,
+                album_title,
+                # Playlist tracks aren't live sets — no Plex live-album marker.
+                release_type=None,
+                youtube_id=entry.get("id"),
+                track_number=track_number,
+            )
+            log(f"✅ Tagged MP3: {final_path}")
+            track_paths.append(final_path)
+
+        if not track_paths:
+            finish_op("audio", "error")
+            raise RuntimeError("No tracks downloaded successfully.")
+
+        finish_op("audio")
+        job["result"]["audio_path"] = album_dir
+        job["result"]["track_count"] = len(track_paths)
+
+        job["status"] = "done"
+        log(f"🎉 Album complete: {len(track_paths)}/{total} tracks saved to {album_dir}")
+        _remember_dj(artist)
+
+    except Exception as exc:
+        job["status"] = "error"
+        log(f"❌ Error: {exc}")
         for op in job["operations"]:
             if op["status"] == "running":
                 op["status"] = "error"

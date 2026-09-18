@@ -764,8 +764,9 @@
       <div class="mode-toggle">
         <button type="button" class="mode-btn active" id="modeMixBtn" onclick="setDownloadMode('mix')">Mix</button>
         <button type="button" class="mode-btn" id="modeSongBtn" onclick="setDownloadMode('song')">Song</button>
+        <button type="button" class="mode-btn" id="modeAlbumBtn" onclick="setDownloadMode('album')">Album</button>
       </div>
-      <div class="mode-sub" id="modeSub" style="display:none;">Song mode downloads audio only, saved to its own artist folder — see Songs in Settings.</div>
+      <div class="mode-sub" id="modeSub" style="display:none;"></div>
     </div>
 
     <!-- Submit form -->
@@ -774,7 +775,7 @@
       <div style="display:flex;flex-direction:column;gap:12px;">
 
         <div class="field">
-          <label>YouTube URL</label>
+          <label id="urlLabel">YouTube URL</label>
           <input type="url" id="urlInput" placeholder="https://youtube.com/watch?v=..." />
         </div>
 
@@ -997,9 +998,10 @@
             <input type="text" id="songsDir" placeholder="/downloads/songs" />
           </div>
           <div class="toggle-sub">
-            Used by "Song" mode (the toggle above New Download). Each download gets its own
+            Used by "Song" and "Album" mode (the toggle above New Download). Each download gets its own
             artist/channel folder here instead of joining the Audio library above —
-            e.g. this dir + "/bigbooty/track.mp3".
+            e.g. this dir + "/bigbooty/track.mp3". Album mode additionally nests each
+            playlist under its own album folder, e.g. this dir + "/bigbooty/Album Name/track.mp3".
           </div>
         </div>
 
@@ -1067,17 +1069,34 @@
   let pollTimer = null;
   let plexConfigured = false;
 
-  // ── Mix/Song mode ────────────────────────────
+  // ── Mix/Song/Album mode ───────────────────────
   // "Mix" is the default full workflow (video + audio, per Settings). "Song"
   // is the same submit-a-URL workflow but forces video off for that job —
-  // it never touches the global Video setting on the Settings page.
-  let downloadMode = 'mix';   // 'mix' | 'song'
+  // it never touches the global Video setting on the Settings page. "Album"
+  // is the same as "Song" but takes a playlist URL — every video in it is
+  // downloaded and tagged as one track of an album.
+  let downloadMode = 'mix';   // 'mix' | 'song' | 'album'
+
+  const MODE_SUB_TEXT = {
+    song: 'Song mode downloads audio only, saved to its own artist folder — see Songs in Settings.',
+    album: 'Album mode downloads a YouTube playlist as individual tracks, saved to their own artist/album folder — see Songs in Settings.',
+  };
+  const MODE_URL_PLACEHOLDER = {
+    mix: 'https://youtube.com/watch?v=...',
+    song: 'https://youtube.com/watch?v=...',
+    album: 'https://youtube.com/playlist?list=...',
+  };
 
   function setDownloadMode(mode) {
     downloadMode = mode;
     document.getElementById('modeMixBtn').classList.toggle('active', mode === 'mix');
     document.getElementById('modeSongBtn').classList.toggle('active', mode === 'song');
-    document.getElementById('modeSub').style.display = mode === 'song' ? '' : 'none';
+    document.getElementById('modeAlbumBtn').classList.toggle('active', mode === 'album');
+    const sub = document.getElementById('modeSub');
+    sub.style.display = mode === 'mix' ? 'none' : '';
+    sub.textContent = MODE_SUB_TEXT[mode] || '';
+    document.getElementById('urlLabel').textContent = mode === 'album' ? 'YouTube Playlist URL' : 'YouTube URL';
+    document.getElementById('urlInput').placeholder = MODE_URL_PLACEHOLDER[mode] || MODE_URL_PLACEHOLDER.mix;
   }
 
   async function checkPlexConfigured() {
@@ -1204,7 +1223,9 @@
     const resultEl = document.getElementById('dResult');
     if (job.result && job.result.audio_path) {
       resultEl.style.display = '';
-      resultEl.textContent = '→ ' + job.result.audio_path;
+      resultEl.textContent = job.result.track_count
+        ? `→ ${job.result.audio_path} (${job.result.track_count} track${job.result.track_count === 1 ? '' : 's'})`
+        : '→ ' + job.result.audio_path;
     } else {
       resultEl.style.display = 'none';
     }
